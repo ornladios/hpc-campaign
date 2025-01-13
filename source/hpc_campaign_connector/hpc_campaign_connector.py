@@ -1271,6 +1271,9 @@ def run_queue():
         with lock:
             removeTunnel(dest_host,dest_port)
 
+class ReuseAddrTCPServer(SocketServer.TCPServer):
+    allow_reuse_address = True
+
 def start_server(argv):
     global g_remote_conn_list
     global g_open_tunnel_list
@@ -1289,7 +1292,9 @@ def start_server(argv):
     while thread.is_alive() == False:
         time.sleep(THREAD_CHECK_TIME)
 
-    with SocketServer.TCPServer((HOST, server_port),MyTCPHandler) as server:
+#    SocketServer.TCPServer.allow_reuse_address = True
+#    with SocketServer.TCPServer((HOST, server_port),MyTCPHandler) as server:
+    with ReuseAddrTCPServer((HOST, server_port),MyTCPHandler) as server:
         print("SSH Tunnel Server: ", HOST,server_port)
         try:
             server.serve_forever()
