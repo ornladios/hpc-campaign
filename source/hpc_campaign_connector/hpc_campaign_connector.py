@@ -322,7 +322,8 @@ class SSHTunnelInfo():
 
         if self.forward_server != None:
             self.forward_tunnel = True
-                                      
+
+g_proxy_command : str = None                          
 class SSHConnectRemote():
     def __init__(self):
         self.options = SSHOptions()
@@ -344,6 +345,12 @@ class SSHConnectRemote():
         client = paramiko.SSHClient()
         client.load_system_host_keys()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        if g_proxy_command:
+            proxy_jump_command=g_proxy_command.replace("%h", host_name).replace("%p", str(ssh_port))
+            # verbose("    using proxy command:", proxy_jump_command)
+            proxy = paramiko.ProxyCommand(proxy_jump_command)
+            sock_channel = proxy
+
         try:
             client.connect(hostname=host_name,
                             port=ssh_port,
@@ -1257,10 +1264,11 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 def parse_arguments(argv):
     server_port = PORT
     config_file = REMOTE_CONFIG_FILE
+    proxy_command = None
     try:
-        opts, args = getopt.getopt(argv, "hc:p:")
+        opts, args = getopt.getopt(argv, "hc:p:x:")
     except getopt.GetoptError:
-        print('python ssh_tunnel_server.py -c <config file> -p <server port>')
+        print('python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>')
         sys.exit(2)
     for opt, arg in opts:
         if opt =='-h':
@@ -1270,7 +1278,9 @@ def parse_arguments(argv):
             config_file = arg
         elif opt =='-p':
             server_port = int(arg)
-    return config_file, server_port
+        elif opt =='-x':
+            proxy_command = arg
+    return config_file, server_port, proxy_command
 
 def removeTunnel(dest_host,dest_port):
     for tnnl in g_open_tunnel_list:
@@ -1298,10 +1308,11 @@ def start_server(argv):
     global g_remote_conn_list
     global g_open_tunnel_list
     global g_server_config_data
+    global g_proxy_command
     g_remote_conn_list = []
     g_open_tunnel_list = []
-    config_file, server_port = parse_arguments(argv)
-    if os.path.isfile(config_file) ==True:
+    config_file, server_port, g_proxy_command = parse_arguments(argv)
+    if os.path.isfile(config_file) == True:
         g_server_config_data = read_yaml_config(config_file)
     else:
         g_server_config_data = {}
@@ -1316,6 +1327,8 @@ def start_server(argv):
 #    with SocketServer.TCPServer((HOST, server_port),MyTCPHandler) as server:
     with ReuseAddrTCPServer((HOST, server_port),MyTCPHandler) as server:
         print("SSH Tunnel Server: ", HOST,server_port)
+        if g_proxy_command:
+            print("Using proxy command", g_proxy_command)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
