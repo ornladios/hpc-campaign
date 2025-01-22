@@ -12,8 +12,11 @@ import paramiko
 import threading
 import queue
 
-from urllib.parse import urlparse, parse_qs
 import yaml
+
+from urllib.parse import urlparse, parse_qs
+from os.path import expanduser
+
 
 HOST = "127.0.0.1"
 PORT = 65432
@@ -26,7 +29,7 @@ SSH_NOPORT_ERROR = 103
 SSH_NO_ERROR = 0
 
 SUPPORTED_PROTOCOLS = ['ssh', 'ssh_tunnel']
-SUPPORTED_AUTH_METHODS = ['passcode', 'password']
+SUPPORTED_AUTH_METHODS = ['passcode', 'password', 'publickey']
 THREAD_CHECK_TIME = 0.5  # 0.5 seconds
 
 class LoginWindowRemote(object):
@@ -650,7 +653,22 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         ssh_connected_jump = None
         if jump_host_name != None:
             ssh_connected_jump = self.check_connected_remote(jump_host_name,jump_user_name)
-                
+
+        if req_def['auth'] == 'publickey':
+            ssh_connect_remote = SSHConnectRemote()
+            if req_def['identity_file'] != None:
+                ssh_connect_remote.options.keyfile = expanduser(req_def['identity_file'])
+            error_no = ssh_connect_remote.connect_remote(host_name=remote_host_name,
+                                        ssh_port=SSH_PORT,
+                                        user_name=remote_user_name,
+                                        user_pass=None,
+                                        sock_channel=None)
+            if error_no == SSH_NO_ERROR:
+                g_remote_conn_list.append(ssh_connect_remote)
+                return ssh_connect_remote
+            else:
+                return None
+
         try_connect_cnt = 0
         ssh_connect_remote = None
         ssh_connect_jump   = None
@@ -852,6 +870,8 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
                             req_def['tunneltype'] = service_data['tunneltype']
                         req_def['conn'] = service_data['protocol']
                         req_def['auth'] = service_data['authentication']
+                        if 'identity_file' in service_data:
+                            req_def['identity_file'] = service_data['identity_file']
                         if (('local_port' not in req_qry) and
                             ('local_port' in service_data)):
                             req_def['local_port'] = service_data['local_port']
