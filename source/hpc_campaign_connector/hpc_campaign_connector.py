@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import tkinter as tk
 import sys
 import socket
@@ -7,6 +8,7 @@ import os
 import select
 import getopt
 import time
+import glob
 
 import paramiko
 import threading
@@ -16,12 +18,17 @@ import yaml
 
 from urllib.parse import urlparse, parse_qs
 from os.path import expanduser
+from datetime import datetime
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from hpc_campaign_manager.hpc_campaign_key import Key, read_key
 
 HOST = "127.0.0.1"
 PORT = 65432
 SSH_PORT = 22
-REMOTE_CONFIG_FILE = 'remote_config.yaml'
+REMOTE_CONFIG_FILE = '~/.config/adios2/hosts.yaml'
 
 SSH_CONNECT_ERROR = 101
 SSH_TUNNEL_ERROR = 102
@@ -582,6 +589,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
             self.do_connect_port(req_qry)
         elif req_path == "/reverse":
             self.do_reverse_port_forward(req_qry)
+            return
+        elif req_path == "/get_key":
+            self.send_key(req_qry)
             return
         else:
             self.send_response("port:-1,msg:incorrect_request_format")
@@ -1260,6 +1270,18 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         self.send_response("port:"+str(reverse_tunnel_info['remote_port'])+"msg:no_error")
 
         return
+    
+    def send_key(self, req_qry):
+        global g_keys
+        if "id" not in req_qry:
+            self.send_response("key:0,msg:missing_key_id_in_request")
+            return
+        
+        key_id = req_qry['id'][0]
+        if key_id in g_keys:
+            self.send_response("key:"+g_keys[key_id].hex()+",msg:no_error")
+        else:
+            self.send_response("key:0,msg:cannot_find_key_id")
 
 def parse_arguments(argv):
     server_port = PORT
@@ -1272,7 +1294,7 @@ def parse_arguments(argv):
         sys.exit(2)
     for opt, arg in opts:
         if opt =='-h':
-            print('python ssh_tunnel_server.py -c <config file> -p <server port>')
+            print('python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>')
             sys.exit(0)
         elif opt =='-c':
             config_file = arg
@@ -1301,6 +1323,28 @@ def run_queue():
         with lock:
             removeTunnel(dest_host,dest_port)
 
+g_keys: dict = {}
+def read_keys():
+    global g_keys
+    keys_pattern=os.path.expanduser("~/.config/adios2/keys/*")
+    keyFileList = glob.glob(keys_pattern)
+    for f in keyFileList:
+        print(f"Loading key {f}")
+        key = Key()
+        key.read(f)
+        print(f"  created on: {datetime.fromisoformat(key.date)}")
+        print(f"        note: {key.note}")
+        print(f"        uuid: {key.id}")
+        if key.salt:
+            print(f"      encryption: password")
+        else:
+            print(f"      encryption: none")
+        try:
+            g_keys[key.id] = key.get_decrypted_key()
+        except:
+            print(f"Decryption of key failed. Ignoring key {f}")
+    print(g_keys)
+
 class ReuseAddrTCPServer(SocketServer.TCPServer):
     allow_reuse_address = True
 
@@ -1316,6 +1360,8 @@ def start_server(argv):
         g_server_config_data = read_yaml_config(config_file)
     else:
         g_server_config_data = {}
+
+    read_keys()
 
     thread = threading.Thread(target=run_queue,args=())
     thread.daemon = True
