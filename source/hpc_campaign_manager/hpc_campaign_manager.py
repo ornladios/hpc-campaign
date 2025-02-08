@@ -5,6 +5,10 @@ import glob
 import sqlite3
 import zlib
 import yaml
+import nacl.encoding
+import nacl.secret
+import nacl.utils
+import nacl.pwhash
 from dataclasses import dataclass
 from datetime import datetime
 from dateutil.parser import parse
@@ -14,9 +18,9 @@ from re import sub
 from socket import getfqdn
 from time import time_ns
 
-# from adios2.adios2_campaign_manager import *
+from hpc_campaign_key import Key, read_key
 
-ADIOS_ACA_VERSION = "0.1"
+ADIOS_ACA_VERSION = "0.2"
 
 
 @dataclass
@@ -73,6 +77,7 @@ def SetupArgs():
         "--campaign_store", "-s", help="Path to local campaign store", default=None
     )
     parser.add_argument("--hostname", "-n", help="Host name unique for hosts in a campaign")
+    parser.add_argument("--keyfile", "-k", help="Key file to encrypt metadata")
     parser.add_argument("--s3_bucket", "-b", help="Bucket on S3 server", default=None)
     parser.add_argument(
         "--s3_datetime",
@@ -134,6 +139,8 @@ def SetupArgs():
         print(f"# Command = {args.command}")
         print(f"# Campaign File Name = {args.CampaignFileName}")
         print(f"# Campaign Store = {args.campaign_store}")
+        print(f"# Host name = {args.hostname}")
+        print(f"# Key file = {args.keyfile}")
     return args
 
 
@@ -195,6 +202,15 @@ def decompressBuffer(buf: bytearray):
     data = zlib.decompress(buf)
     return data
 
+def encryptBuffer(args: dict, buf: bytearray):
+    if args.encryption_key:
+        box = nacl.secret.SecretBox(args.encryption_key)
+        nonce = nacl.utils.random(nacl.secret.SecretBox.NONCE_SIZE)
+        e = box.encrypt(buf, nonce)
+        print("Encoded buffer size: ", len(e))
+        return e
+    else:
+        return buf
 
 def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
     compressed = 1
@@ -205,6 +221,8 @@ def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
     except IOError:
         print(f"ERROR While reading file {filename}")
         return
+
+    encrypted_data = encryptBuffer(args, compressed_data)
 
     statres = stat(filename)
     ct = statres.st_ctime_ns
@@ -222,63 +240,58 @@ def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
             len_orig,
             len_compressed,
             ct,
-            compressed_data,
+            encrypted_data,
             compressed,
             len_orig,
             len_compressed,
             ct,
-            compressed_data,
+            encrypted_data,
         ),
     )
 
 
 def AddDatasetToArchive(
-    args: dict, hostID: int, dirID: int, dataset: str, cur: sqlite3.Cursor
+    args: dict, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor
 ) -> int:
-    select_cmd = (
-        "select rowid from bpdataset "
-        f"where hostid = {hostID} and dirid = {dirID} and name = '{dataset}'"
-    )
-    res = cur.execute(select_cmd)
-    row = res.fetchone()
-    if row is not None:
-        rowID = row[0]
-        print(
-            f"Found dataset {dataset} in database on host {hostID} "
-            f"in dir {dirID}, rowid = {rowID}"
-        )
-    else:
-        print(f"Add dataset {dataset} to archive")
-        if args.remote_data:
-            if args.s3_datetime:
-                ct = parse_date_to_utc(args.s3_datetime)
-            else:
-                ct = 0
-        else:
-            statres = stat(dataset)
-            ct = statres.st_ctime_ns
 
-        curDS = cur.execute(
-            "insert into bpdataset (hostid, dirid, name, ctime) values (?, ?, ?, ?)",
-            (hostID, dirID, dataset, ct),
-        )
-        rowID = curDS.lastrowid
-        # print(
-        #     f"Inserted bpdataset {dataset} in database on host {hostID}"
-        #     f" in dir {dirID}, rowid = {rowID}"
-        # )
+    print(f"Add dataset {dataset} to archive")
+
+    if args.remote_data:
+        if args.s3_datetime:
+            ct = parse_date_to_utc(args.s3_datetime)
+        else:
+            ct = 0
+    else:
+        statres = stat(dataset)
+        ct = statres.st_ctime_ns
+
+    curDS = cur.execute(
+        "insert into bpdataset (hostid, dirid, name, ctime, keyid) values  (?, ?, ?, ?, ?) "
+        "on conflict (hostid, dirid, name) do update set ctime = ?, keyid = ?",
+        (
+            hostID,
+            dirID,
+            dataset,
+            ct,
+            keyID,
+            ct,
+            keyID
+        ),
+    )
+
+    rowID = curDS.lastrowid
     return rowID
 
 
-def ProcessFiles(args: dict, cur: sqlite3.Cursor, hostID: int, dirID: int):
+def ProcessFiles(args: dict, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int):
     for entry in args.files:
         print(f"Process entry {entry}:")
         dsID = 0
         dataset = entry
         if args.remote_data:
-            dsID = AddDatasetToArchive(args, hostID, dirID, dataset, cur)
+            dsID = AddDatasetToArchive(args, hostID, dirID, -1, dataset, cur)
         elif IsADIOSDataset(dataset):
-            dsID = AddDatasetToArchive(args, hostID, dirID, dataset, cur)
+            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur)
             cwd = getcwd()
             chdir(dataset)
             mdFileList = glob.glob("*md.*")
@@ -357,10 +370,29 @@ def AddDirectory(hostID: int, path: str) -> int:
     return dirID
 
 
+def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
+    if key_id:
+        res = cur.execute('select rowid from key where keyid = "' + key_id + '"')
+        row = res.fetchone()
+        if row is not None:
+            keyID = row[0]
+            print(f"Found key {key_id} in database, rowid = {keyID}")
+        else:
+            cmd = f"insert into key values (\"{(key_id)}\")"
+            curKey = cur.execute(cmd)
+            # curKey = cur.execute("insert into key values (?)", (key_id))
+            keyID = curKey.lastrowid
+            print(f"Inserted key {key_id} into database, rowid = {keyID}")
+        return keyID
+    else:
+        return 0  # an invalid row id
+
+
 def Update(args: dict, cur: sqlite3.Cursor):
     longHostName, shortHostName = GetHostName()
 
     hostID = AddHostName(longHostName, shortHostName)
+    keyID = AddKeyID(args.encryption_key_id, cur)
 
     if args.remote_data and args.s3_bucket is not None:
         rootdir = args.s3_bucket
@@ -369,7 +401,7 @@ def Update(args: dict, cur: sqlite3.Cursor):
     dirID = AddDirectory(hostID, rootdir)
     con.commit()
 
-    ProcessFiles(args, cur, hostID, dirID)
+    ProcessFiles(args, cur, hostID, dirID, keyID)
 
     con.commit()
 
@@ -381,11 +413,12 @@ def Create(args: dict, cur: sqlite3.Cursor):
         "insert into info values (?, ?, ?, ?)",
         ("ACA", "ADIOS Campaign Archive", ADIOS_ACA_VERSION, epoch),
     )
+    cur.execute("create table key" + "(keyid TEXT PRIMARY KEY)")
     cur.execute("create table host" + "(hostname TEXT PRIMARY KEY, longhostname TEXT)")
     cur.execute("create table directory" + "(hostid INT, name TEXT, PRIMARY KEY (hostid, name))")
     cur.execute(
         "create table bpdataset" +
-        "(hostid INT, dirid INT, name TEXT, ctime INT" +
+        "(hostid INT, dirid INT, name TEXT, ctime INT, keyid INT" +
         ", PRIMARY KEY (hostid, dirid, name))"
     )
     cur.execute(
@@ -394,6 +427,7 @@ def Create(args: dict, cur: sqlite3.Cursor):
         ", lencompressed INT, ctime INT, data BLOB" +
         ", PRIMARY KEY (bpdatasetid, name))"
     )
+    con.commit()
     Update(args, cur)
 
 
@@ -480,6 +514,15 @@ if __name__ == "__main__":
 
     if args.command == "delete":
         exit(Delete())
+
+    if args.keyfile:
+        key = read_key(args.keyfile)
+        # ask for password at this point
+        args.encryption_key = key.get_decrypted_key()
+        args.encryption_key_id = key.id
+    else:
+        args.encryption_key = None
+        args.encryption_key_id = None
 
     if args.command == "create":
         print("Create archive")
