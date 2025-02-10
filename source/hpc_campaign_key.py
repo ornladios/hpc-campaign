@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import nacl.encoding
 import nacl.secret
 import nacl.utils

@@ -10,8 +10,6 @@ import nacl.encoding
 import nacl.secret
 import nacl.utils
 import nacl.pwhash
-from dataclasses import dataclass
-from datetime import datetime
 from dateutil.parser import parse
 from os import chdir, getcwd, remove, stat
 from os.path import exists, isdir, expanduser
@@ -20,49 +18,8 @@ from socket import getfqdn
 from time import time_ns
 
 from hpc_campaign_key import Key, read_key
-
-ADIOS_ACA_VERSION = "0.3"
-# 0.2 added key encryption (added table key, modfified table bpdataset)
-# 0.3 generate UUID for each bpdataset (modified table bpdataset)
-
-
-@dataclass
-class UserOption:
-    adios_campaign_store: str = None
-    hostname: str = None
-    verbose: int = 0
-
-
-def ReadUserConfig():
-    path = expanduser("~/.config/adios2/adios2.yaml")
-    opts = UserOption()
-    try:
-        doc = {}
-        with open(path) as f:
-            doc = yaml.safe_load(f)
-        camp = doc.get("Campaign")
-        if isinstance(camp, dict):
-            for key, value in camp.items():
-                if key == "campaignstorepath":
-                    opts.adios_campaign_store = expanduser(value)
-                if key == "hostname":
-                    opts.hostname = value
-                if key == "verbose":
-                    opts.verbose = value
-    except FileNotFoundError:
-        None
-    return opts
-
-
-def ReadHostConfig() -> dict:
-    path = expanduser("~/.config/adios2/hosts.yaml")
-    doc = {}
-    try:
-        with open(path) as f:
-            doc = yaml.safe_load(f)
-    except FileNotFoundError:
-        None
-    return doc
+from hpc_campaign_config import Config, ADIOS_ACA_VERSION
+from hpc_campaign_utils import timestamp_to_datetime
 
 
 def SetupArgs():
@@ -92,14 +49,14 @@ def SetupArgs():
     args = parser.parse_args()
 
     # default values
-    args.user_options = ReadUserConfig()
-    args.host_options = ReadHostConfig()
+    args.user_options = Config()
+    args.host_options = args.user_options.read_host_config()
 
     if args.verbose == 0:
         args.verbose = args.user_options.verbose
 
     if args.campaign_store is None:
-        args.campaign_store = args.user_options.adios_campaign_store
+        args.campaign_store = args.user_options.campaign_store_path
 
     if args.campaign_store is not None:
         while args.campaign_store[-1] == "/":
@@ -108,8 +65,8 @@ def SetupArgs():
     args.remote_data = False
     args.s3_endpoint = None
     if args.hostname is None:
-        args.hostname = args.user_options.hostname
-    elif args.hostname in args.host_options and args.hostname != args.user_options.hostname:
+        args.hostname = args.user_options.host_name
+    elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
         args.remote_data = True
         hostopt = args.host_options.get(args.hostname)
         if hostopt is not None:
@@ -205,7 +162,7 @@ def decompressBuffer(buf: bytearray):
     data = zlib.decompress(buf)
     return data
 
-def encryptBuffer(args: dict, buf: bytearray):
+def encryptBuffer(args: argparse.Namespace, buf: bytearray):
     if args.encryption_key:
         box = nacl.secret.SecretBox(args.encryption_key)
         nonce = nacl.utils.random(nacl.secret.SecretBox.NONCE_SIZE)
@@ -215,7 +172,7 @@ def encryptBuffer(args: dict, buf: bytearray):
     else:
         return buf
 
-def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
+def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Cursor, dsID: int):
     compressed = 1
     try:
         f = open(filename, "rb")
@@ -254,7 +211,7 @@ def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
 
 
 def AddDatasetToArchive(
-    args: dict, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor, uniqueID: str
+    args: argparse.Namespace, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor, uniqueID: str
 ) -> int:
 
     print(f"Add dataset {dataset} to archive")
@@ -287,7 +244,7 @@ def AddDatasetToArchive(
     return rowID
 
 
-def ProcessFiles(args: dict, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, location: str):
+def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, location: str):
     for entry in args.files:
         print(f"Process entry {entry}:")
         uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
@@ -393,7 +350,7 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
         return 0  # an invalid row id
 
 
-def Update(args: dict, cur: sqlite3.Cursor):
+def Update(args: argparse.Namespace, cur: sqlite3.Cursor):
     longHostName, shortHostName = GetHostName()
 
     hostID = AddHostName(longHostName, shortHostName)
@@ -411,7 +368,7 @@ def Update(args: dict, cur: sqlite3.Cursor):
     con.commit()
 
 
-def Create(args: dict, cur: sqlite3.Cursor):
+def Create(args: argparse.Namespace, cur: sqlite3.Cursor):
     epoch = time_ns()
     cur.execute("create table info(id TEXT, name TEXT, version TEXT, ctime INT)")
     cur.execute(
@@ -436,19 +393,7 @@ def Create(args: dict, cur: sqlite3.Cursor):
     Update(args, cur)
 
 
-def timestamp_to_datetime(timestamp: int) -> datetime:
-    digits = len(str(int(timestamp)))
-    t = float(timestamp)
-    if digits > 18:
-        t = t / 1000000000
-    elif digits > 15:
-        t = t / 1000000
-    elif digits > 12:
-        t = t / 1000
-    return datetime.fromtimestamp(t)
-
-
-def Info(args: dict, cur: sqlite3.Cursor):
+def Info(cur: sqlite3.Cursor):
     res = cur.execute("select id, name, version, ctime from info")
     info = res.fetchone()
     t = timestamp_to_datetime(info[3])
@@ -477,7 +422,7 @@ def Info(args: dict, cur: sqlite3.Cursor):
                 print(f"        dataset = {bpdataset[1]}    {t}    {bpdataset[2]} ")
 
 
-def List():
+def List(args: argparse.Namespace):
     path = args.campaign
     if path is None:
         if args.campaign_store is None:
@@ -500,7 +445,7 @@ def List():
     return 0
 
 
-def Delete():
+def Delete(args: argparse.Namespace):
     if exists(args.CampaignFileName):
         print(f"Delete archive {args.CampaignFileName}")
         remove(args.CampaignFileName)
@@ -515,10 +460,10 @@ if __name__ == "__main__":
     CheckCampaignStore(args)
 
     if args.command == "list":
-        exit(List())
+        exit(List(args))
 
     if args.command == "delete":
-        exit(Delete())
+        exit(Delete(args))
 
     if args.keyfile:
         key = read_key(args.keyfile)
@@ -544,7 +489,7 @@ if __name__ == "__main__":
     cur = con.cursor()
 
     if args.command == "info":
-        Info(args, cur)
+        Info(cur)
     else:
         if args.files is None:
             CheckLocalCampaignDir(args)
