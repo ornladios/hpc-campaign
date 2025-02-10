@@ -88,12 +88,12 @@ def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
 
     print(f"folder-size       db-entries  db-size       campaign name")
     print(f"-----------------------------------------------------------------------------")
+    size_all = 0
+    nkv_all = 0
+    kvsize_all = 0
     for arch in archives:
         size_arch = 0
-        size_all = 0
-        nkv_all = 0
         nkv_arch = 0
-        kvsize_all = 0
         kvsize_arch = 0
         for id, idvalues in archives[arch].items():
             size_arch += idvalues['dirsize']
