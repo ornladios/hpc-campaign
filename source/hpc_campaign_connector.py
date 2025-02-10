@@ -23,7 +23,7 @@ from datetime import datetime
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hpc_campaign_manager.hpc_campaign_key import Key, read_key
+from hpc_campaign_key import Key, read_key
 
 HOST = "127.0.0.1"
 PORT = 65432
