@@ -5,6 +5,7 @@ import glob
 import sqlite3
 import zlib
 import yaml
+import uuid
 import nacl.encoding
 import nacl.secret
 import nacl.utils
@@ -20,7 +21,9 @@ from time import time_ns
 
 from hpc_campaign_key import Key, read_key
 
-ADIOS_ACA_VERSION = "0.2"
+ADIOS_ACA_VERSION = "0.3"
+# 0.2 added key encryption (added table key, modfified table bpdataset)
+# 0.3 generate UUID for each bpdataset (modified table bpdataset)
 
 
 @dataclass
@@ -251,7 +254,7 @@ def AddFileToArchive(args: dict, filename: str, cur: sqlite3.Cursor, dsID: int):
 
 
 def AddDatasetToArchive(
-    args: dict, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor
+    args: dict, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor, uniqueID: str
 ) -> int:
 
     print(f"Add dataset {dataset} to archive")
@@ -266,9 +269,10 @@ def AddDatasetToArchive(
         ct = statres.st_ctime_ns
 
     curDS = cur.execute(
-        "insert into bpdataset (hostid, dirid, name, ctime, keyid) values  (?, ?, ?, ?, ?) "
-        "on conflict (hostid, dirid, name) do update set ctime = ?, keyid = ?",
+        "insert into bpdataset (uuid, hostid, dirid, name, ctime, keyid) values  (?, ?, ?, ?, ?, ?) "
+        "on conflict (uuid) do update set ctime = ?, keyid = ?",
         (
+            uniqueID,
             hostID,
             dirID,
             dataset,
@@ -283,15 +287,16 @@ def AddDatasetToArchive(
     return rowID
 
 
-def ProcessFiles(args: dict, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int):
+def ProcessFiles(args: dict, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, location: str):
     for entry in args.files:
         print(f"Process entry {entry}:")
+        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
         dsID = 0
         dataset = entry
         if args.remote_data:
-            dsID = AddDatasetToArchive(args, hostID, dirID, -1, dataset, cur)
+            dsID = AddDatasetToArchive(args, hostID, dirID, -1, dataset, cur, uniqueID)
         elif IsADIOSDataset(dataset):
-            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur)
+            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID)
             cwd = getcwd()
             chdir(dataset)
             mdFileList = glob.glob("*md.*")
@@ -401,7 +406,7 @@ def Update(args: dict, cur: sqlite3.Cursor):
     dirID = AddDirectory(hostID, rootdir)
     con.commit()
 
-    ProcessFiles(args, cur, hostID, dirID, keyID)
+    ProcessFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir)
 
     con.commit()
 
@@ -418,8 +423,8 @@ def Create(args: dict, cur: sqlite3.Cursor):
     cur.execute("create table directory" + "(hostid INT, name TEXT, PRIMARY KEY (hostid, name))")
     cur.execute(
         "create table bpdataset" +
-        "(hostid INT, dirid INT, name TEXT, ctime INT, keyid INT" +
-        ", PRIMARY KEY (hostid, dirid, name))"
+        "(uuid TEXT, hostid INT, dirid INT, name TEXT, ctime INT, keyid INT" +
+        ", PRIMARY KEY (uuid))"
     )
     cur.execute(
         "create table bpfile" +
@@ -460,7 +465,7 @@ def Info(args: dict, cur: sqlite3.Cursor):
         for dir in dirs:
             print(f"    dir = {dir[1]}")
             res3 = cur.execute(
-                'select rowid, name, ctime from bpdataset where hostid = "' +
+                'select rowid, uuid, name, ctime from bpdataset where hostid = "' +
                 str(host[0]) +
                 '" and dirid = "' +
                 str(dir[0]) +
@@ -468,8 +473,8 @@ def Info(args: dict, cur: sqlite3.Cursor):
             )
             bpdatasets = res3.fetchall()
             for bpdataset in bpdatasets:
-                t = timestamp_to_datetime(bpdataset[2])
-                print(f"        dataset = {bpdataset[1]}     created on {t}")
+                t = timestamp_to_datetime(bpdataset[3])
+                print(f"        dataset = {bpdataset[1]}    {t}    {bpdataset[2]} ")
 
 
 def List():
