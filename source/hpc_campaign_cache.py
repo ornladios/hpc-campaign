@@ -2,12 +2,15 @@
 import argparse
 import sqlite3
 import redis
-from os import walk
+from os import walk, listdir
 from shutil import rmtree
 from re import match
 from glob import glob
 from os.path import exists, join, getsize
 from sys import exit
+from time import sleep
+
+import redis.exceptions
 
 from hpc_campaign_config import Config, REDIS_PORT
 from hpc_campaign_utils import timestamp_to_datetime, input_yes_or_no
@@ -57,37 +60,40 @@ def folder_size(folder_path: str) -> int:
 
 def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
     archives = {} # organize datasets to archives
-    dataset_ids = glob("[0-9a-f]*", root_dir=cfg.cache_path)
-    if args.verbose > 0: 
-        print(f"# Found {len(dataset_ids)} datasets in cache directory") 
-    for id in dataset_ids:
-        archive_name = "unknown"
-        infoname = join(cfg.cache_path, id, "info.txt")
-        if exists(infoname):
-            infofile = open(infoname, "r")
-            for line in infofile:
-                if match("Campaign = ", line):
-                    archive_name = line[11:-1]
-        dirsize = folder_size(join(cfg.cache_path, id))
+    cache_folders = glob("[0-9a-f][0-9a-f][0-9a-f]", root_dir=cfg.cache_path)
+    if args.verbose > 1: 
+        print(f"# Found {len(cache_folders)} cache folders in cache directory") 
+    for folder in cache_folders:
+        folder_path = join(cfg.cache_path, folder)
+        dataset_ids = glob("[0-9a-f]*", root_dir=folder_path)
+        if args.verbose > 1: 
+            print(f"# Found {len(dataset_ids)} datasets in cache folder {folder}") 
+        for id in dataset_ids:
+            archive_name = "unknown"
+            infoname = join(folder_path, id, "info.txt")
+            if exists(infoname):
+                infofile = open(infoname, "r")
+                for line in infofile:
+                    if match("Campaign = ", line):
+                        archive_name = line[11:-1]
+            dirsize = folder_size(join(folder_path, id))
 
-        kvkeys = kvdb.keys(id+"*")
-        nkv = len(kvkeys)
-        kvsize = 0
-        for key in kvkeys:
-            kvsize += kvdb.memory_usage(key)
+            kvkeys = kvdb.keys(id+"*")
+            nkv = len(kvkeys)
+            kvsize = 0
+            for key in kvkeys:
+                kvsize += kvdb.memory_usage(key)
 
-        if args.verbose > 1:
-            print(f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}")
-        elif args.verbose == 1:
-            print(".", end='')
-        entry = {id: {'dirsize': dirsize, 'nkv':nkv, 'kvsize': kvsize}}
-        if not archive_name in archives:
-            archives[archive_name] = {}
-        archives[archive_name].update(entry)
-    if args.verbose > 0: print("")
+            if args.verbose > 1:
+                print(f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}")
+            entry = {id: {'dirsize': dirsize, 'nkv':nkv, 'kvsize': kvsize}}
+            if not archive_name in archives:
+                archives[archive_name] = {}
+            archives[archive_name].update(entry)
+    if args.verbose > 1: print("")
 
-    print(f"folder-size       db-entries  db-size       campaign name")
-    print(f"-----------------------------------------------------------------------------")
+    print(f"folder-size     db-entries db-size     campaign name")
+    print(f"--------------------------------------------------------------------------")
     size_all = 0
     nkv_all = 0
     kvsize_all = 0
@@ -99,19 +105,20 @@ def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
             size_arch += idvalues['dirsize']
             nkv_arch += idvalues['nkv']
             kvsize_arch += idvalues['kvsize']
-        print(f"{size_arch:<16}  {nkv_arch:<10}  {kvsize_arch:<12}  {arch} ")
+        print(f"{size_arch:<15} {nkv_arch:<10} {kvsize_arch:<11} {arch}")
         size_all += size_arch
         nkv_all += nkv_arch
         kvsize_all += kvsize_arch
         if (args.verbose > 0):
             for id, idvalues in archives[arch].items():
-                print(f"{idvalues['dirsize']:>14}     {idvalues['nkv']:>8}  {idvalues['kvsize']:>10}     {id}")
-    print(f"{size_all:<16}  {nkv_all:<10}  {kvsize_all}")
+                print(f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  {idvalues['kvsize']:>10}     {id}")
+    print(f"{size_all:<15} {nkv_all:<10} {kvsize_all}")
 
 def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis, id: str):
     kvkeys = kvdb.keys(id+"*")
     nkeys = len(kvkeys)
-    path = join(cfg.cache_path, id)
+    parent_path = join(cfg.cache_path, id[0:3])
+    path = join(parent_path, id)
 
     if nkeys > 0 or exists(path):
         if args.yes_to_all or input_yes_or_no("Do you want to clear cache for "+id+" (y/n)? "):   
@@ -125,6 +132,13 @@ def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis,
             if args.verbose > 0: print(f"  deleted folder {path}")
     else:
         if args.verbose > 0: print(f"  nothing in cache")
+
+    # delete cache_path/XXX is empty
+    if exists(parent_path):
+        dir = listdir(parent_path) 
+        if len(dir) == 0: 
+            rmtree(parent_path, ignore_errors=True)
+            if args.verbose > 0: print(f"  deleted folder {parent_path}")
 
 
 def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
@@ -164,6 +178,16 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     con.close()
 
 
+def connect_to_redis(host: str, port: int, db: int) -> redis.Redis:
+    r = redis.Redis(host=host, port=port, db=db)
+    try:
+        r.ping()
+    except (redis.exceptions.ConnectionError, ConnectionRefusedError):
+        print(f"Could not connect to Redis at {host}:{port}, db={db}. Check if Redis is running.")
+        return None
+    return r
+
+
 if __name__ == "__main__":
     # default values
     cfg = Config()
@@ -176,7 +200,9 @@ if __name__ == "__main__":
         print(f"Could not find {cfg.cache_path}")
         exit(1)
 
-    kvdb = redis.Redis(host='localhost', port=6379, db=0)
+    kvdb = connect_to_redis(host='localhost', port=args.redis_port, db=0)
+    if not kvdb:
+        exit(1)
 
     if args.command == "list":
         if args.CampaignFileName is not None:
