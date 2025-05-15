@@ -3,9 +3,10 @@
 import yaml
 from os.path import expanduser
 
-ADIOS_ACA_VERSION = "0.3"
+ADIOS_ACA_VERSION = "0.4"
 # 0.2 added key encryption (added table key, modfified table bpdataset)
 # 0.3 generate UUID for each bpdataset (modified table bpdataset)
+# 0.4 added h5dataset table
 
 REDIS_PORT = 6379
 

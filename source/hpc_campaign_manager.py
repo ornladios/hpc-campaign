@@ -20,7 +20,7 @@ from time import time_ns
 from hpc_campaign_key import Key, read_key
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 from hpc_campaign_utils import timestamp_to_datetime
-
+from hpc_campaign_hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
 
 def SetupArgs():
     parser = argparse.ArgumentParser()
@@ -137,7 +137,6 @@ def IsADIOSDataset(dataset):
         return False
     return True
 
-
 def compressFile(f):
     compObj = zlib.compressobj()
     compressed = bytearray()
@@ -172,6 +171,12 @@ def encryptBuffer(args: argparse.Namespace, buf: bytearray):
     else:
         return buf
 
+def lastrowid_or_zero(curDS: sqlite3.Cursor) -> int:
+    rowID = curDS.lastrowid
+    if not rowID: 
+        rowID = 0
+    return rowID
+
 def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Cursor, dsID: int):
     compressed = 1
     try:
@@ -188,10 +193,10 @@ def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Curso
     ct = statres.st_ctime_ns
 
     cur.execute(
-        "insert into bpfile "
-        "(bpdatasetid, name, compression, lenorig, lencompressed, ctime, data) "
+        "insert into file "
+        "(datasetid, name, compression, lenorig, lencompressed, ctime, data) "
         "values (?, ?, ?, ?, ?, ?, ?) "
-        "on conflict (bpdatasetid, name) do update "
+        "on conflict (datasetid, name) do update "
         "set compression = ?, lenorig = ?, lencompressed = ?, ctime = ?, data = ?",
         (
             dsID,
@@ -212,7 +217,7 @@ def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Curso
 
 def AddDatasetToArchive(
     args: argparse.Namespace, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor, uniqueID: str
-) -> int:
+, format: str) -> int:
 
     print(f"Add dataset {dataset} to archive")
 
@@ -226,7 +231,8 @@ def AddDatasetToArchive(
         ct = statres.st_ctime_ns
 
     curDS = cur.execute(
-        "insert into bpdataset (uuid, hostid, dirid, name, ctime, keyid) values  (?, ?, ?, ?, ?, ?) "
+        "insert into dataset (uuid, hostid, dirid, name, ctime, keyid, fileformat) "
+        "values  (?, ?, ?, ?, ?, ?, ?) "
         "on conflict (uuid) do update set ctime = ?, keyid = ?",
         (
             uniqueID,
@@ -235,12 +241,13 @@ def AddDatasetToArchive(
             dataset,
             ct,
             keyID,
+            format,
             ct,
             keyID
         ),
     )
 
-    rowID = curDS.lastrowid
+    rowID = lastrowid_or_zero(curDS)
     return rowID
 
 
@@ -251,9 +258,9 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
         dsID = 0
         dataset = entry
         if args.remote_data:
-            dsID = AddDatasetToArchive(args, hostID, dirID, -1, dataset, cur, uniqueID)
+            dsID = AddDatasetToArchive(args, hostID, dirID, -1, dataset, cur, uniqueID, "ADIOS")
         elif IsADIOSDataset(dataset):
-            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID)
+            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID, "ADIOS")
             cwd = getcwd()
             chdir(dataset)
             mdFileList = glob.glob("*md.*")
@@ -262,8 +269,12 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
             for f in files:
                 AddFileToArchive(args, f, cur, dsID)
             chdir(cwd)
+        elif IsHDF5Dataset(dataset):
+            copy_hdf5_file_without_data(dataset, "tempcopy_"+dataset)
+            dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID, "HDF5")
+            AddFileToArchive(args, "tempcopy_"+dataset, cur, dsID)
         else:
-            print(f"WARNING: Dataset {dataset} is not an ADIOS dataset. Skip")
+            print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
 
 
 def GetHostName():
@@ -283,7 +294,7 @@ def GetHostName():
     return longhost, shorthost
 
 
-def AddHostName(longHostName, shortHostName):
+def AddHostName(longHostName, shortHostName) -> int:
     res = cur.execute('select rowid from host where hostname = "' + shortHostName + '"')
     row = res.fetchone()
     if row is not None:
@@ -291,7 +302,7 @@ def AddHostName(longHostName, shortHostName):
         print(f"Found host {shortHostName} in database, rowid = {hostID}")
     else:
         curHost = cur.execute("insert into host values (?, ?)", (shortHostName, longHostName))
-        hostID = curHost.lastrowid
+        hostID = lastrowid_or_zero(curHost)
         print(f"Inserted host {shortHostName} into database, rowid = {hostID}")
     return hostID
 
@@ -327,7 +338,7 @@ def AddDirectory(hostID: int, path: str) -> int:
         print(f"Found directory {path} with hostID {hostID} in database, rowid = {dirID}")
     else:
         curDirectory = cur.execute("insert into directory values (?, ?)", (hostID, path))
-        dirID = curDirectory.lastrowid
+        dirID = lastrowid_or_zero(curDirectory)
         print(f"Inserted directory {path} into database, rowid = {dirID}")
     return dirID
 
@@ -343,7 +354,7 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
             cmd = f"insert into key values (\"{(key_id)}\")"
             curKey = cur.execute(cmd)
             # curKey = cur.execute("insert into key values (?)", (key_id))
-            keyID = curKey.lastrowid
+            keyID = lastrowid_or_zero(curKey)
             print(f"Inserted key {key_id} into database, rowid = {keyID}")
         return keyID
     else:
@@ -379,16 +390,17 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor):
     cur.execute("create table host" + "(hostname TEXT PRIMARY KEY, longhostname TEXT)")
     cur.execute("create table directory" + "(hostid INT, name TEXT, PRIMARY KEY (hostid, name))")
     cur.execute(
-        "create table bpdataset" +
-        "(uuid TEXT, hostid INT, dirid INT, name TEXT, ctime INT, keyid INT" +
+        "create table dataset" +
+        "(uuid TEXT, hostid INT, dirid INT, name TEXT, ctime INT, keyid INT, fileformat TEXT" +
         ", PRIMARY KEY (uuid))"
     )
     cur.execute(
-        "create table bpfile" +
-        "(bpdatasetid INT, name TEXT, compression INT, lenorig INT" +
+        "create table file" +
+        "(datasetid INT, name TEXT, compression INT, lenorig INT" +
         ", lencompressed INT, ctime INT, data BLOB" +
-        ", PRIMARY KEY (bpdatasetid, name))"
+        ", PRIMARY KEY (datasetid, name))"
     )
+    
     con.commit()
     Update(args, cur)
 
@@ -410,16 +422,16 @@ def Info(cur: sqlite3.Cursor):
         for dir in dirs:
             print(f"    dir = {dir[1]}")
             res3 = cur.execute(
-                'select rowid, uuid, name, ctime from bpdataset where hostid = "' +
+                'select rowid, uuid, name, ctime, fileformat from dataset where hostid = "' +
                 str(host[0]) +
                 '" and dirid = "' +
                 str(dir[0]) +
                 '"'
             )
-            bpdatasets = res3.fetchall()
-            for bpdataset in bpdatasets:
-                t = timestamp_to_datetime(bpdataset[3])
-                print(f"        dataset = {bpdataset[1]}    {t}    {bpdataset[2]} ")
+            datasets = res3.fetchall()
+            for dataset in datasets:
+                t = timestamp_to_datetime(dataset[3])
+                print(f"        dataset = {dataset[1]}  {dataset[4]:5}  {t}   {dataset[2]} ")
 
 
 def List(args: argparse.Namespace):
