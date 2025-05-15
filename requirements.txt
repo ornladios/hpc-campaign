@@ -5,3 +5,4 @@ pip3 install pyyaml
 pip3 install paramiko
 pip3 install PyNaCl
 pip3 install redis
+pip3 install h5py
