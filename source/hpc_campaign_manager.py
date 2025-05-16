@@ -45,7 +45,8 @@ def SetupArgs():
         help="Datetime of data on S3 server in " "'2024-04-19 10:20:15 -0400' format",
         default=None,
     )
-    parser.add_argument("-f", "--files", nargs="+", help="Add ADIOS files manually")
+    parser.add_argument("--files", "-f", nargs="+", help="Add ADIOS/HDF5 files manually")
+    parser.add_argument("--textfiles", "-x", nargs="+", help="Add text files manually")
     args = parser.parse_args()
 
     # default values
@@ -91,8 +92,9 @@ def SetupArgs():
         ):
             args.CampaignFileName = args.campaign_store + "/" + args.CampaignFileName
 
-    if args.files is None:
-        args.LocalCampaignDir = ".adios-campaign/"
+    if args.files is None: args.files = []
+    if args.textfiles is None: args.textfiles = []
+    args.LocalCampaignDir = ".adios-campaign/"
 
     if args.verbose > 0:
         print(f"# Verbosity = {args.verbose}")
@@ -278,6 +280,11 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
         else:
             print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
 
+    for entry in args.textfiles:
+        print(f"Process entry {entry}:")
+        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
+        dsID = AddDatasetToArchive(args, hostID, dirID, keyID, entry, cur, uniqueID, "TEXT")
+        AddFileToArchive(args, entry, cur, dsID)
 
 def GetHostName():
     if args.s3_endpoint:
@@ -505,7 +512,7 @@ if __name__ == "__main__":
     if args.command == "info":
         Info(cur)
     else:
-        if args.files is None:
+        if not args.files and not args.textfiles:
             CheckLocalCampaignDir(args)
             # List the local campaign directory
             dbFileList = glob.glob(args.LocalCampaignDir + "/*.db")
