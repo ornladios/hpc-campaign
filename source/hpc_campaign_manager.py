@@ -270,9 +270,11 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
                 AddFileToArchive(args, f, cur, dsID)
             chdir(cwd)
         elif IsHDF5Dataset(dataset):
-            copy_hdf5_file_without_data(dataset, "tempcopy_"+dataset)
+            mdfilename = "md_"+dataset
+            copy_hdf5_file_without_data(dataset, mdfilename)
             dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID, "HDF5")
-            AddFileToArchive(args, "tempcopy_"+dataset, cur, dsID)
+            AddFileToArchive(args, mdfilename, cur, dsID)
+            remove(mdfilename)
         else:
             print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
 
