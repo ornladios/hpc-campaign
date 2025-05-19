@@ -10,9 +10,6 @@ import sys
 from os import stat
 from os.path import exists
 
-infilename = sys.argv[1]
-outfilename = sys.argv[2]
-
 def _report(operation, key, obj, size):
     type_str = type(obj).__name__.split(".")[-1].lower()
     print(f"{operation} {type_str} {key}, size = {size}")
@@ -92,6 +89,8 @@ def IsHDF5Dataset(dataset):
 
 
 if __name__ == "__main__":
+    infilename = sys.argv[1]
+    outfilename = sys.argv[2]
     insize, outsize = copy_hdf5_file_without_data(infilename, outfilename, log=True)
     print(f"{infilename} size = {insize}")
     print(f"{outfilename} size = {outsize}")
