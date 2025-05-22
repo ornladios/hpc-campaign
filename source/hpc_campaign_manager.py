@@ -12,7 +12,7 @@ import nacl.utils
 import nacl.pwhash
 from dateutil.parser import parse
 from os import chdir, getcwd, remove, stat
-from os.path import exists, isdir, expanduser
+from os.path import exists, isdir, dirname, basename, expanduser
 from re import sub
 from socket import getfqdn
 from time import time_ns
@@ -253,7 +253,8 @@ def AddDatasetToArchive(
     return rowID
 
 
-def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, location: str):
+def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
+                 dirpath: str, location: str):
     for entry in args.files:
         print(f"Process entry {entry}:")
         uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
@@ -272,7 +273,7 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
                 AddFileToArchive(args, f, cur, dsID)
             chdir(cwd)
         elif IsHDF5Dataset(dataset):
-            mdfilename = "md_"+dataset
+            mdfilename = dirname(dataset)+"/md_"+basename(dataset)
             copy_hdf5_file_without_data(dataset, mdfilename)
             dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID, "HDF5")
             AddFileToArchive(args, mdfilename, cur, dsID)
@@ -383,7 +384,7 @@ def Update(args: argparse.Namespace, cur: sqlite3.Cursor):
     dirID = AddDirectory(hostID, rootdir)
     con.commit()
 
-    ProcessFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir)
+    ProcessFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
 
     con.commit()
 
@@ -419,7 +420,7 @@ def Info(cur: sqlite3.Cursor):
     info = res.fetchone()
     t = timestamp_to_datetime(info[3])
     print(f"{info[1]}, version {info[2]}, created on {t}")
-
+    version = float(info[2])
     res = cur.execute("select rowid, hostname, longhostname from host")
     hosts = res.fetchall()
     for host in hosts:
@@ -430,17 +431,30 @@ def Info(cur: sqlite3.Cursor):
         dirs = res2.fetchall()
         for dir in dirs:
             print(f"    dir = {dir[1]}")
-            res3 = cur.execute(
-                'select rowid, uuid, name, ctime, fileformat from dataset where hostid = "' +
-                str(host[0]) +
-                '" and dirid = "' +
-                str(dir[0]) +
-                '"'
-            )
-            datasets = res3.fetchall()
-            for dataset in datasets:
-                t = timestamp_to_datetime(dataset[3])
-                print(f"        dataset = {dataset[1]}  {dataset[4]:5}  {t}   {dataset[2]} ")
+            if version >= 0.4:
+                res3 = cur.execute(
+                    'select rowid, uuid, name, ctime, fileformat from dataset where hostid = "' +
+                    str(host[0]) +
+                    '" and dirid = "' +
+                    str(dir[0]) +
+                    '"'
+                )
+                datasets = res3.fetchall()
+                for dataset in datasets:
+                    t = timestamp_to_datetime(dataset[3])
+                    print(f"        dataset = {dataset[1]}  {dataset[4]:5}  {t}   {dataset[2]} ")
+            else:
+                res3 = cur.execute(
+                    'select rowid, uuid, name, ctime from bpdataset where hostid = "' +
+                    str(host[0]) +
+                    '" and dirid = "' +
+                    str(dir[0]) +
+                    '"'
+                )
+                datasets = res3.fetchall()
+                for dataset in datasets:
+                    t = timestamp_to_datetime(dataset[3])
+                    print(f"        dataset = {dataset[1]}  ADIOS  {t}   {dataset[2]} ")
 
 
 def List(args: argparse.Namespace):
