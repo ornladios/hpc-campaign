@@ -34,9 +34,9 @@ def CheckCampaignStore(args):
 def CheckLocalCampaignDir(args):
     if not isdir(args.LocalCampaignDir):
         print(
-            "ERROR: Shot campaign data '" +
-            args.LocalCampaignDir +
-            "' does not exist. Run this command where the code was executed.",
+            "ERROR: Shot campaign data '"
+            + args.LocalCampaignDir
+            + "' does not exist. Run this command where the code was executed.",
             flush=True,
         )
         exit(1)
@@ -57,6 +57,7 @@ def IsADIOSDataset(dataset):
     if not exists(dataset + "/" + "data.0"):
         return False
     return True
+
 
 def compressFile(f):
     compObj = zlib.compressobj()
@@ -82,6 +83,7 @@ def decompressBuffer(buf: bytearray):
     data = zlib.decompress(buf)
     return data
 
+
 def encryptBuffer(args: argparse.Namespace, buf: bytearray):
     if args.encryption_key:
         box = nacl.secret.SecretBox(args.encryption_key)
@@ -92,11 +94,13 @@ def encryptBuffer(args: argparse.Namespace, buf: bytearray):
     else:
         return buf
 
+
 def lastrowid_or_zero(curDS: sqlite3.Cursor) -> int:
     rowID = curDS.lastrowid
-    if not rowID: 
+    if not rowID:
         rowID = 0
     return rowID
+
 
 def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Cursor, dsID: int):
     compressed = 1
@@ -137,8 +141,15 @@ def AddFileToArchive(args: argparse.Namespace, filename: str, cur: sqlite3.Curso
 
 
 def AddDatasetToArchive(
-    args: argparse.Namespace, hostID: int, dirID: int, keyID: int, dataset: str, cur: sqlite3.Cursor, uniqueID: str
-, format: str) -> int:
+    args: argparse.Namespace,
+    hostID: int,
+    dirID: int,
+    keyID: int,
+    dataset: str,
+    cur: sqlite3.Cursor,
+    uniqueID: str,
+    format: str,
+) -> int:
 
     print(f"Add dataset {dataset} to archive")
 
@@ -155,28 +166,25 @@ def AddDatasetToArchive(
         "insert into dataset (uuid, hostid, dirid, name, ctime, keyid, fileformat) "
         "values  (?, ?, ?, ?, ?, ?, ?) "
         "on conflict (uuid) do update set ctime = ?, keyid = ?",
-        (
-            uniqueID,
-            hostID,
-            dirID,
-            dataset,
-            ct,
-            keyID,
-            format,
-            ct,
-            keyID
-        ),
+        (uniqueID, hostID, dirID, dataset, ct, keyID, format, ct, keyID),
     )
 
     rowID = lastrowid_or_zero(curDS)
     return rowID
 
 
-def ProcessDatasets(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
-                 dirpath: str, location: str):
+def ProcessDatasets(
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    hostID: int,
+    dirID: int,
+    keyID: int,
+    dirpath: str,
+    location: str,
+):
     for entry in args.files:
         print(f"Process entry {entry}:")
-        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
+        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + entry).hex
         dsID = 0
         dataset = entry
         if args.remote_data:
@@ -192,7 +200,7 @@ def ProcessDatasets(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, 
                 AddFileToArchive(args, f, cur, dsID)
             chdir(cwd)
         elif IsHDF5Dataset(dataset):
-            mdfilename = dirname(dataset)+"/md_"+basename(dataset)
+            mdfilename = dirname(dataset) + "/md_" + basename(dataset)
             copy_hdf5_file_without_data(dataset, mdfilename)
             dsID = AddDatasetToArchive(args, hostID, dirID, keyID, dataset, cur, uniqueID, "HDF5")
             AddFileToArchive(args, mdfilename, cur, dsID)
@@ -201,17 +209,31 @@ def ProcessDatasets(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, 
             print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
 
 
-def ProcessTextFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
-                 dirpath: str, location: str):
+def ProcessTextFiles(
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    hostID: int,
+    dirID: int,
+    keyID: int,
+    dirpath: str,
+    location: str,
+):
     for entry in args.files:
         print(f"Process entry {entry}:")
-        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
+        uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + entry).hex
         dsID = AddDatasetToArchive(args, hostID, dirID, keyID, entry, cur, uniqueID, "TEXT")
         AddFileToArchive(args, entry, cur, dsID)
 
 
-def ProcessImage(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
-                 dirpath: str, location: str):
+def ProcessImage(
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    hostID: int,
+    dirID: int,
+    keyID: int,
+    dirpath: str,
+    location: str,
+):
     print("Adding images is not supported yet")
 
 
@@ -268,7 +290,7 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
             keyID = row[0]
             print(f"Found key {key_id} in database, rowid = {keyID}")
         else:
-            cmd = f"insert into key values (\"{(key_id)}\")"
+            cmd = f'insert into key values ("{(key_id)}")'
             curKey = cur.execute(cmd)
             # curKey = cur.execute("insert into key values (?)", (key_id))
             keyID = lastrowid_or_zero(curKey)
@@ -291,12 +313,12 @@ def Update(args: argparse.Namespace, cur: sqlite3.Cursor):
     dirID = AddDirectory(hostID, rootdir)
     con.commit()
 
-    if (args.command == "dataset"):
-        ProcessDatasets(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
-    elif (args.command == "text"):
-        ProcessTextFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
-    elif (args.command == "image"):
-        ProcessImage(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
+    if args.command == "dataset":
+        ProcessDatasets(args, cur, hostID, dirID, keyID, longHostName + rootdir, rootdir)
+    elif args.command == "text":
+        ProcessTextFiles(args, cur, hostID, dirID, keyID, longHostName + rootdir, rootdir)
+    elif args.command == "image":
+        ProcessImage(args, cur, hostID, dirID, keyID, longHostName + rootdir, rootdir)
 
     con.commit()
 
@@ -312,15 +334,15 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor):
     cur.execute("create table host" + "(hostname TEXT PRIMARY KEY, longhostname TEXT)")
     cur.execute("create table directory" + "(hostid INT, name TEXT, PRIMARY KEY (hostid, name))")
     cur.execute(
-        "create table dataset" +
-        "(uuid TEXT, hostid INT, dirid INT, name TEXT, ctime INT, keyid INT, fileformat TEXT" +
-        ", PRIMARY KEY (uuid))"
+        "create table dataset"
+        + "(uuid TEXT, hostid INT, dirid INT, name TEXT, ctime INT, keyid INT, fileformat TEXT"
+        + ", PRIMARY KEY (uuid))"
     )
     cur.execute(
-        "create table file" +
-        "(datasetid INT, name TEXT, compression INT, lenorig INT" +
-        ", lencompressed INT, ctime INT, data BLOB" +
-        ", PRIMARY KEY (datasetid, name))"
+        "create table file"
+        + "(datasetid INT, name TEXT, compression INT, lenorig INT"
+        + ", lencompressed INT, ctime INT, data BLOB"
+        + ", PRIMARY KEY (datasetid, name))"
     )
     con.commit()
 
@@ -343,11 +365,11 @@ def Info(cur: sqlite3.Cursor):
             print(f"    dir = {dir[1]}")
             if version >= 0.4:
                 res3 = cur.execute(
-                    'select rowid, uuid, name, ctime, fileformat from dataset where hostid = "' +
-                    str(host[0]) +
-                    '" and dirid = "' +
-                    str(dir[0]) +
-                    '"'
+                    'select rowid, uuid, name, ctime, fileformat from dataset where hostid = "'
+                    + str(host[0])
+                    + '" and dirid = "'
+                    + str(dir[0])
+                    + '"'
                 )
                 datasets = res3.fetchall()
                 for dataset in datasets:
@@ -355,11 +377,11 @@ def Info(cur: sqlite3.Cursor):
                     print(f"        dataset = {dataset[1]}  {dataset[4]:5}  {t}   {dataset[2]} ")
             else:
                 res3 = cur.execute(
-                    'select rowid, uuid, name, ctime from bpdataset where hostid = "' +
-                    str(host[0]) +
-                    '" and dirid = "' +
-                    str(dir[0]) +
-                    '"'
+                    'select rowid, uuid, name, ctime from bpdataset where hostid = "'
+                    + str(host[0])
+                    + '" and dirid = "'
+                    + str(dir[0])
+                    + '"'
                 )
                 datasets = res3.fetchall()
                 for dataset in datasets:
@@ -388,8 +410,7 @@ if __name__ == "__main__":
         parser.args.encryption_key_id = key.id
     else:
         parser.args.encryption_key = None
-        parser.args.encryption_key_id = None    
-
+        parser.args.encryption_key_id = None
 
     con: sqlite3.Connection
     cur: sqlite3.Cursor
@@ -423,14 +444,18 @@ if __name__ == "__main__":
         elif parser.args.command == "create":
             Create(parser.args, cur)
             continue
-        elif (parser.args.command == "dataset" or 
-              parser.args.command == "text" or 
-              parser.args.command == "image"
+        elif (
+            parser.args.command == "dataset"
+            or parser.args.command == "text"
+            or parser.args.command == "image"
         ):
             Update(parser.args, cur)
             continue
         else:
-            print(f"This should not happen. Unknown command accepted by argparser: {parser.args.command}")
+            print(
+                "This should not happen. "
+                f"Unknown command accepted by argparser: {parser.args.command}"
+            )
 
     if connected:
         cur.close()

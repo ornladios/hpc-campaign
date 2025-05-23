@@ -10,8 +10,9 @@ ADIOS_ACA_VERSION = "0.4"
 
 REDIS_PORT = 6379
 
+
 class Config:
-    """ User config and Hosts config file parser """
+    """User config and Hosts config file parser"""
 
     def __init__(self):
         self.campaign_store_path: str = None
