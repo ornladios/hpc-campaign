@@ -1,0 +1,51 @@
+[build-system]
+requires = [
+    "setuptools >= 65",
+    "setuptools_scm[toml] >= 7",
+    "wheel >= 0.29.0",
+]
+
+[project]
+name = "hpc-campaign"
+description = "Campaign management scripts for remote data access"
+readme = "README.md"
+authors = [
+    {name = "Norbert Podhorszki", email = "pnorbert@ornl.gov"}
+]
+license = {file = "LICENSE"}
+dynamic = ["version"]
+keywords = ["campaign", "remote data", "adios2", "hdf5"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Visualization"
+]
+requires-python = ">=3.8"
+dependencies = [
+    "PyYAML >= 6",
+    "paramiko >= 3.5",
+    "PyNaCl >= 1.5",
+    "redis >= 5",
+    "h5py >= 3.10"
+]
+
+[project.urls]
+Source = "//https://github.com/ornladios/hpc-campaign"
+Tracker = "https://github.com/ornladios/hpc-campaign/issues"
+Documentation = "https://hpc-campaign.readthedocs.io/en/latest/"
+
+[tool.setuptools]
+packages = ["hpc-campaign"]
+
+[tool.black] 
+line-length = 100
+
