@@ -10,6 +10,7 @@ import nacl.encoding
 import nacl.secret
 import nacl.utils
 import nacl.pwhash
+import sys
 from dateutil.parser import parse
 from os import chdir, getcwd, remove, stat
 from os.path import exists, isdir, dirname, basename, expanduser
@@ -21,89 +22,7 @@ from hpc_campaign_key import Key, read_key
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 from hpc_campaign_utils import timestamp_to_datetime
 from hpc_campaign_hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
-
-def SetupArgs():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "command",
-        help="Command: create/update/delete/info/list",
-        choices=["create", "update", "delete", "info", "list"],
-    )
-    parser.add_argument(
-        "campaign", help="Campaign name or path, with .aca or without", default=None, nargs="?"
-    )
-    parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
-    parser.add_argument(
-        "--campaign_store", "-s", help="Path to local campaign store", default=None
-    )
-    parser.add_argument("--hostname", "-n", help="Host name unique for hosts in a campaign")
-    parser.add_argument("--keyfile", "-k", help="Key file to encrypt metadata")
-    parser.add_argument("--s3_bucket", "-b", help="Bucket on S3 server", default=None)
-    parser.add_argument(
-        "--s3_datetime",
-        "-t",
-        help="Datetime of data on S3 server in " "'2024-04-19 10:20:15 -0400' format",
-        default=None,
-    )
-    parser.add_argument("--files", "-f", nargs="+", help="Add ADIOS/HDF5 files manually")
-    parser.add_argument("--textfiles", "-x", nargs="+", help="Add text files manually")
-    args = parser.parse_args()
-
-    # default values
-    args.user_options = Config()
-    args.host_options = args.user_options.read_host_config()
-
-    if args.verbose == 0:
-        args.verbose = args.user_options.verbose
-
-    if args.campaign_store is None:
-        args.campaign_store = args.user_options.campaign_store_path
-
-    if args.campaign_store is not None:
-        while args.campaign_store[-1] == "/":
-            args.campaign_store = args.campaign_store[:-1]
-
-    args.remote_data = False
-    args.s3_endpoint = None
-    if args.hostname is None:
-        args.hostname = args.user_options.host_name
-    elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
-        args.remote_data = True
-        hostopt = args.host_options.get(args.hostname)
-        if hostopt is not None:
-            optID = next(iter(hostopt))
-            if hostopt[optID]["protocol"].casefold() == "s3":
-                args.s3_endpoint = hostopt[optID]["endpoint"]
-                if args.s3_bucket is None:
-                    print("ERROR: Remote option for an S3 server requires --s3_bucket")
-                    exit(1)
-                if args.s3_datetime is None:
-                    print("ERROR: Remote option for an S3 server requires --s3_datetime")
-                    exit(1)
-
-    args.CampaignFileName = args.campaign
-    if args.campaign is not None:
-        if not args.campaign.endswith(".aca"):
-            args.CampaignFileName += ".aca"
-        if (
-            not exists(args.CampaignFileName) and
-            not args.CampaignFileName.startswith("/") and
-            args.campaign_store is not None
-        ):
-            args.CampaignFileName = args.campaign_store + "/" + args.CampaignFileName
-
-    if args.files is None: args.files = []
-    if args.textfiles is None: args.textfiles = []
-    args.LocalCampaignDir = ".adios-campaign/"
-
-    if args.verbose > 0:
-        print(f"# Verbosity = {args.verbose}")
-        print(f"# Command = {args.command}")
-        print(f"# Campaign File Name = {args.CampaignFileName}")
-        print(f"# Campaign Store = {args.campaign_store}")
-        print(f"# Host name = {args.hostname}")
-        print(f"# Key file = {args.keyfile}")
-    return args
+from hpc_campaign_manager_args import ArgParser
 
 
 def CheckCampaignStore(args):
@@ -253,7 +172,7 @@ def AddDatasetToArchive(
     return rowID
 
 
-def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
+def ProcessDatasets(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
                  dirpath: str, location: str):
     for entry in args.files:
         print(f"Process entry {entry}:")
@@ -281,13 +200,22 @@ def ProcessFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dir
         else:
             print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
 
-    for entry in args.textfiles:
+
+def ProcessTextFiles(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
+                 dirpath: str, location: str):
+    for entry in args.files:
         print(f"Process entry {entry}:")
         uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location+"/"+entry).hex
         dsID = AddDatasetToArchive(args, hostID, dirID, keyID, entry, cur, uniqueID, "TEXT")
         AddFileToArchive(args, entry, cur, dsID)
 
-def GetHostName():
+
+def ProcessImage(args: argparse.Namespace, cur: sqlite3.Cursor, hostID: int, dirID: int, keyID: int, 
+                 dirpath: str, location: str):
+    print("Adding images is not supported yet")
+
+
+def GetHostName(args: argparse.Namespace):
     if args.s3_endpoint:
         longhost = args.s3_endpoint
     else:
@@ -315,27 +243,6 @@ def AddHostName(longHostName, shortHostName) -> int:
         hostID = lastrowid_or_zero(curHost)
         print(f"Inserted host {shortHostName} into database, rowid = {hostID}")
     return hostID
-
-
-def MergeDBFiles(dbfiles: list):
-    # read db files here
-    result = list()
-    for f1 in dbfiles:
-        try:
-            con = sqlite3.connect(f1)
-        except sqlite3.Error as e:
-            print(e)
-
-        cur = con.cursor()
-        try:
-            cur.execute("select  * from bpfiles")
-        except sqlite3.Error as e:
-            print(e)
-        record = cur.fetchall()
-        for item in record:
-            result.append(item[0])
-        cur.close()
-    return result
 
 
 def AddDirectory(hostID: int, path: str) -> int:
@@ -372,7 +279,7 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
 
 
 def Update(args: argparse.Namespace, cur: sqlite3.Cursor):
-    longHostName, shortHostName = GetHostName()
+    longHostName, shortHostName = GetHostName(args)
 
     hostID = AddHostName(longHostName, shortHostName)
     keyID = AddKeyID(args.encryption_key_id, cur)
@@ -384,7 +291,12 @@ def Update(args: argparse.Namespace, cur: sqlite3.Cursor):
     dirID = AddDirectory(hostID, rootdir)
     con.commit()
 
-    ProcessFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
+    if (args.command == "dataset"):
+        ProcessDatasets(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
+    elif (args.command == "text"):
+        ProcessTextFiles(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
+    elif (args.command == "image"):
+        ProcessImage(args, cur, hostID, dirID, keyID, longHostName+rootdir, rootdir)
 
     con.commit()
 
@@ -410,9 +322,7 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor):
         ", lencompressed INT, ctime INT, data BLOB" +
         ", PRIMARY KEY (datasetid, name))"
     )
-    
     con.commit()
-    Update(args, cur)
 
 
 def Info(cur: sqlite3.Cursor):
@@ -457,29 +367,6 @@ def Info(cur: sqlite3.Cursor):
                     print(f"        dataset = {dataset[1]}  ADIOS  {t}   {dataset[2]} ")
 
 
-def List(args: argparse.Namespace):
-    path = args.campaign
-    if path is None:
-        if args.campaign_store is None:
-            print("ERROR: Set --campaign_store for this command")
-            return 1
-        path = args.campaign_store
-    else:
-        while path[-1] == "/":
-            path = path[:-1]
-
-    # List the local campaign store
-    acaList = glob.glob(path + "/**/*.aca", recursive=True)
-    if len(acaList) == 0:
-        print("There are no campaign archives in  " + path)
-        return 2
-    else:
-        startCharPos = len(path) + 1
-        for f in acaList:
-            print(f[startCharPos:])
-    return 0
-
-
 def Delete(args: argparse.Namespace):
     if exists(args.CampaignFileName):
         print(f"Delete archive {args.CampaignFileName}")
@@ -491,54 +378,60 @@ def Delete(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    args = SetupArgs()
-    CheckCampaignStore(args)
+    parser = ArgParser()
+    CheckCampaignStore(parser.args)
 
-    if args.command == "list":
-        exit(List(args))
-
-    if args.command == "delete":
-        exit(Delete(args))
-
-    if args.keyfile:
-        key = read_key(args.keyfile)
+    if parser.args.keyfile:
+        key = read_key(parser.args.keyfile)
         # ask for password at this point
-        args.encryption_key = key.get_decrypted_key()
-        args.encryption_key_id = key.id
+        parser.args.encryption_key = key.get_decrypted_key()
+        parser.args.encryption_key_id = key.id
     else:
-        args.encryption_key = None
-        args.encryption_key_id = None
+        parser.args.encryption_key = None
+        parser.args.encryption_key_id = None    
 
-    if args.command == "create":
-        print("Create archive")
-        if exists(args.CampaignFileName):
-            print(f"ERROR: archive {args.CampaignFileName} already exist")
-            exit(1)
-    elif args.command == "update" or args.command == "info":
-        print(f"{args.command} archive")
-        if not exists(args.CampaignFileName):
-            print(f"ERROR: archive {args.CampaignFileName} does not exist")
-            exit(1)
 
-    con = sqlite3.connect(args.CampaignFileName)
-    cur = con.cursor()
+    con: sqlite3.Connection
+    cur: sqlite3.Cursor
+    connected = False
 
-    if args.command == "info":
-        Info(cur)
-    else:
-        if not args.files and not args.textfiles:
-            CheckLocalCampaignDir(args)
-            # List the local campaign directory
-            dbFileList = glob.glob(args.LocalCampaignDir + "/*.db")
-            if len(dbFileList) == 0:
-                print("There are no campaign data files in  " + args.LocalCampaignDir)
-                exit(2)
-            args.files = MergeDBFiles(dbFileList)
+    while parser.parse_next_command():
 
-        if args.command == "create":
-            Create(args, cur)
-        elif args.command == "update":
-            Update(args, cur)
+        if parser.args.command == "delete":
+            Delete(parser.args)
+            continue
 
-    cur.close()
-    con.close()
+        if parser.args.command == "create":
+            print("Create archive")
+            if exists(parser.args.CampaignFileName):
+                print(f"ERROR: archive {parser.args.CampaignFileName} already exist")
+                exit(1)
+        else:
+            print(f"{parser.args.command} archive")
+            if not exists(parser.args.CampaignFileName):
+                print(f"ERROR: archive {parser.args.CampaignFileName} does not exist")
+                exit(1)
+
+        if not connected:
+            con = sqlite3.connect(parser.args.CampaignFileName)
+            cur = con.cursor()
+            connected = True
+
+        if parser.args.command == "info":
+            Info(cur)
+            continue
+        elif parser.args.command == "create":
+            Create(parser.args, cur)
+            continue
+        elif (parser.args.command == "dataset" or 
+              parser.args.command == "text" or 
+              parser.args.command == "image"
+        ):
+            Update(parser.args, cur)
+            continue
+        else:
+            print(f"This should not happen. Unknown command accepted by argparser: {parser.args.command}")
+
+    if connected:
+        cur.close()
+        con.close()
