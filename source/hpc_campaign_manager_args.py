@@ -119,11 +119,11 @@ class ArgParser:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 An campaign archive name without '.aca' extension will be forced to have '.aca'.
-If it exists, 'campaignstorepath' in ~/.config/adios2/adios2.yaml will be used for 
+If it exists, 'campaignstorepath' in ~/.config/adios2/adios2.yaml will be used for
 relative paths for <archive> names.
-Multiple commands can be used in one run. 
+Multiple commands can be used in one run.
 Type '%(prog)s x <command> -h' for help on commands.
-"""
+""",
         )
         parsers = {}
         parsers["main"] = parser
@@ -176,7 +176,7 @@ Type '%(prog)s x <command> -h' for help on commands.
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description="""
 Add one or more datasets to the archive. Datasets can be valid HDF5 or ADIOS2-BP files.
-A temporary file is created from HDF5 files so one must have write access to the folder 
+A temporary file is created from HDF5 files so one must have write access to the folder
 where the HDF5 file resides.
 """,
         )
@@ -190,7 +190,7 @@ where the HDF5 file resides.
             description="""
 Add one or more text files to the archive. They are always stored in the archive,
 so be mindful about the size of the resulting archive. Text is stored compressed.
-""",            
+""",
         )
         parsers["text"] = parser_text
         parser_text.add_argument("files", nargs="+", help="add text files manually")

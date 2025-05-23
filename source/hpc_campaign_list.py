@@ -8,16 +8,21 @@ from os.path import exists, isdir, dirname, basename, expanduser
 
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
+
 def SetupArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*"
     )
-    parser.add_argument("-w","--wildcard",  help="Use patterns as path wildcard patterns", action="store_true", default=False)
     parser.add_argument(
-        "-s", "--campaign_store", help="Path to local campaign store", default=None
+        "-w",
+        "--wildcard",
+        help="Use patterns as path wildcard patterns",
+        action="store_true",
+        default=False,
     )
-    parser.add_argument( "-v","--verbose", help="More verbosity", action="count", default=0)
+    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
+    parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args()
 
     # default values
@@ -62,8 +67,8 @@ def List(args: argparse.Namespace):
         startCharPos = len(path) + 1
         for f in acaList:
             name = f[startCharPos:]
-            matches = False            
-            if len(args.pattern) == 0 :
+            matches = False
+            if len(args.pattern) == 0:
                 matches = True
             else:
                 for p in args.pattern:
@@ -85,4 +90,3 @@ if __name__ == "__main__":
     args = SetupArgs()
     CheckCampaignStore(args)
     List(args)
-
