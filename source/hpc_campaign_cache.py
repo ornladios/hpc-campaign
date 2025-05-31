@@ -164,7 +164,10 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     info = res.fetchone()
     t = timestamp_to_datetime(info[3])
     print(f"{info[1]}, version {info[2]}, created on {t}")
-
+    version = float(info[2])
+    dstablename = 'dataset'
+    if version < 0.4:
+        dstablename = 'bpdataset'
     res = cur.execute("select rowid, hostname, longhostname from host")
     hosts = res.fetchall()
     for host in hosts:
@@ -176,17 +179,17 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
         for dir in dirs:
             print(f"    dir = {dir[1]}")
             res3 = cur.execute(
-                'select rowid, uuid, name, ctime from bpdataset where hostid = "'
+                f'select rowid, uuid, name, ctime from {dstablename} where hostid = "'
                 + str(host[0])
                 + '" and dirid = "'
                 + str(dir[0])
                 + '"'
             )
-            bpdatasets = res3.fetchall()
-            for bpdataset in bpdatasets:
-                id = bpdataset[1]
-                t = timestamp_to_datetime(bpdataset[3])
-                print(f"        dataset = {id}    {t}    {bpdataset[2]} ")
+            datasets = res3.fetchall()
+            for dataset in datasets:
+                id = dataset[1]
+                t = timestamp_to_datetime(dataset[3])
+                print(f"        dataset = {id}    {t}    {dataset[2]} ")
                 delete_cache_items(args, cfg, kvdb, id)
 
     cur.close()
