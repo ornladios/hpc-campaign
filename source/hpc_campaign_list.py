@@ -11,9 +11,7 @@ from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
 def SetupArgs():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*"
-    )
+    parser.add_argument("pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*")
     parser.add_argument(
         "-w",
         "--wildcard",

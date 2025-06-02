@@ -47,5 +47,9 @@ Documentation = "https://hpc-campaign.readthedocs.io/en/latest/"
 packages = ["hpc-campaign"]
 
 [tool.black] 
-line-length = 100
+line-length = 120
 
+[tool.pyright]
+include = ["source"]
+exclude = ["**/__pycache__"]
+reportPossiblyUnboundVariable = false

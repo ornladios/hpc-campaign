@@ -57,7 +57,7 @@ def walk(in_object, out_object, log=False):
                     if log:
                         _report("Recreated without copy", key, in_obj, in_obj.size)
             else:
-                raise "Invalid object type %s" % type(in_obj)
+                raise Exception("Invalid object type %s" % type(in_obj))
             copy_attributes(in_obj, out_obj)
         else:
             # We copy datatypes and objects with non-understandable attributes
