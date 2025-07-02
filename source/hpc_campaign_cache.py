@@ -23,14 +23,10 @@ def setup_args(cfg: Config):
         help="Command: list/clear",
         choices=["list", "clear"],
     )
-    parser.add_argument(
-        "campaign", help="Campaign name or path, with .aca or without", default=None, nargs="?"
-    )
+    parser.add_argument("campaign", help="Campaign name or path, with .aca or without", default=None, nargs="?")
     parser.add_argument("--redis-port", "-p", help="Key-value database port", default=REDIS_PORT)
     parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
-    parser.add_argument(
-        "--yes-to-all", "-y", help="Answer yes automatically", action="store_true", default=False
-    )
+    parser.add_argument("--yes-to-all", "-y", help="Answer yes automatically", action="store_true", default=False)
     args = parser.parse_args()
 
     args.CampaignFileName = args.campaign
@@ -89,9 +85,7 @@ def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
                 kvsize += kvdb.memory_usage(key)
 
             if args.verbose > 1:
-                print(
-                    f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}"
-                )
+                print(f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}")
             entry = {id: {"dirsize": dirsize, "nkv": nkv, "kvsize": kvsize}}
             if archive_name not in archives:
                 archives[archive_name] = {}
@@ -118,10 +112,7 @@ def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
         kvsize_all += kvsize_arch
         if args.verbose > 0:
             for id, idvalues in archives[arch].items():
-                print(
-                    f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  "
-                    f"{idvalues['kvsize']:>10}     {id}"
-                )
+                print(f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  " f"{idvalues['kvsize']:>10}     {id}")
     print(f"{size_all:<15} {nkv_all:<10} {kvsize_all}")
 
 
@@ -165,16 +156,14 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     t = timestamp_to_datetime(info[3])
     print(f"{info[1]}, version {info[2]}, created on {t}")
     version = float(info[2])
-    dstablename = 'dataset'
+    dstablename = "dataset"
     if version < 0.4:
-        dstablename = 'bpdataset'
+        dstablename = "bpdataset"
     res = cur.execute("select rowid, hostname, longhostname from host")
     hosts = res.fetchall()
     for host in hosts:
         print(f"hostname = {host[1]}   longhostname = {host[2]}")
-        res2 = cur.execute(
-            'select rowid, name from directory where hostid = "' + str(host[0]) + '"'
-        )
+        res2 = cur.execute('select rowid, name from directory where hostid = "' + str(host[0]) + '"')
         dirs = res2.fetchall()
         for dir in dirs:
             print(f"    dir = {dir[1]}")
