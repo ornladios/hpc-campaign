@@ -8,8 +8,16 @@ from os.path import exists, isdir, dirname, basename, expanduser
 
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
+def List(*patterns, wildcard: bool=False):
+    args = _SetupArgs()
+    _CheckCampaignStore(args)
+    if wildcard:
+        args.wildcard = True
+    for p in patterns:
+        args.pattern.append(p)
+    return _List(args, collect=True)
 
-def SetupArgs():
+def _SetupArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument("pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*")
     parser.add_argument(
@@ -44,23 +52,24 @@ def SetupArgs():
     return args
 
 
-def CheckCampaignStore(args):
+def _CheckCampaignStore(args):
     if args.campaign_store is not None and not isdir(args.campaign_store):
         print("ERROR: Campaign directory " + args.campaign_store + " does not exist", flush=True)
         exit(1)
 
 
-def List(args: argparse.Namespace):
+def _List(args: argparse.Namespace, collect: bool=True) -> list[str]:
+    result = []
     if args.campaign_store is None:
         print("ERROR: Set --campaign_store for this command")
-        return 1
+        return result
     path = args.campaign_store
 
     # List the local campaign store
     acaList = glob.glob(path + "/**/*.aca", recursive=True)
     if len(acaList) == 0:
         print("There are no campaign archives in  " + path)
-        return 2
+        return result
     else:
         startCharPos = len(path) + 1
         for f in acaList:
@@ -80,11 +89,14 @@ def List(args: argparse.Namespace):
                             break
 
             if matches:
-                print(f[startCharPos:])
-    return 0
+                if collect:
+                    result.append(f[startCharPos:])
+                else:
+                    print(f[startCharPos:])
+    return result
 
 
 if __name__ == "__main__":
-    args = SetupArgs()
-    CheckCampaignStore(args)
-    List(args)
+    args = _SetupArgs()
+    _CheckCampaignStore(args)
+    _List(args, collect=False)
