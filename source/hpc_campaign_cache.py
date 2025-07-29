@@ -151,35 +151,19 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     con = sqlite3.connect(args.CampaignFileName)
     cur = con.cursor()
 
-    res = cur.execute("select id, name, version, ctime from info")
+    res = cur.execute("select id, name, version, modtime from info")
     info = res.fetchone()
     t = timestamp_to_datetime(info[3])
     print(f"{info[1]}, version {info[2]}, created on {t}")
     version = float(info[2])
-    dstablename = "dataset"
-    if version < 0.4:
-        dstablename = "bpdataset"
-    res = cur.execute("select rowid, hostname, longhostname from host")
-    hosts = res.fetchall()
-    for host in hosts:
-        print(f"hostname = {host[1]}   longhostname = {host[2]}")
-        res2 = cur.execute('select rowid, name from directory where hostid = "' + str(host[0]) + '"')
-        dirs = res2.fetchall()
-        for dir in dirs:
-            print(f"    dir = {dir[1]}")
-            res3 = cur.execute(
-                f'select rowid, uuid, name, ctime from {dstablename} where hostid = "'
-                + str(host[0])
-                + '" and dirid = "'
-                + str(dir[0])
-                + '"'
-            )
-            datasets = res3.fetchall()
-            for dataset in datasets:
-                id = dataset[1]
-                t = timestamp_to_datetime(dataset[3])
-                print(f"        dataset = {id}    {t}    {dataset[2]} ")
-                delete_cache_items(args, cfg, kvdb, id)
+
+    res = cur.execute("select rowid, uuid, name, modtime from dataset")
+    datasets = res.fetchall()
+    for dataset in datasets:
+        id = dataset[1]
+        t = timestamp_to_datetime(dataset[3])
+        print(f"        dataset = {id}    {t}    {dataset[2]} ")
+        delete_cache_items(args, cfg, kvdb, id)
 
     cur.close()
     con.close()
