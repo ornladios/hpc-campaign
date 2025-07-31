@@ -9,12 +9,18 @@ from os.path import exists, isdir, dirname, basename, expanduser
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
 def List(*patterns, wildcard: bool=False):
-    args = _SetupArgs()
-    _CheckCampaignStore(args)
+    args = argparse.Namespace()
     if wildcard:
         args.wildcard = True
+    else:
+        args.wildcard = False
+    args.pattern = []
     for p in patterns:
         args.pattern.append(p)
+    args.verbose = 0
+    args.campaign_store = None
+    args = _SetDefaults(args)
+    _CheckCampaignStore(args)
     return _List(args, collect=True)
 
 def _SetupArgs():
@@ -30,7 +36,10 @@ def _SetupArgs():
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args()
+    return _SetDefaults(args)
 
+
+def _SetDefaults(args: argparse.Namespace):
     # default values
     args.user_options = Config()
     args.host_options = args.user_options.read_host_config()
