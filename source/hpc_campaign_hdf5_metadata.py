@@ -78,7 +78,7 @@ def copy_hdf5_file_without_data(infilename: str, outfilename: str, log: bool = F
     if __HAVE_H5PY__:
         with h5py.File(infilename, "r") as in_file, h5py.File(outfilename, "w") as out_file:
             walk(in_file, out_file, log=log)
-        return stat(infilename).st_size, stat(infilename).st_size
+        return stat(infilename).st_size, stat(outfilename).st_size
     else:
         return 0, 0
 
