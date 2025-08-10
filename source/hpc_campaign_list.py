@@ -8,7 +8,8 @@ from os.path import exists, isdir, dirname, basename, expanduser
 
 from hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
-def List(*patterns, wildcard: bool=False):
+
+def List(*patterns, wildcard: bool = False):
     args = argparse.Namespace()
     if wildcard:
         args.wildcard = True
@@ -22,6 +23,7 @@ def List(*patterns, wildcard: bool=False):
     args = _SetDefaults(args)
     _CheckCampaignStore(args)
     return _List(args, collect=True)
+
 
 def _SetupArgs():
     parser = argparse.ArgumentParser()
@@ -67,7 +69,7 @@ def _CheckCampaignStore(args):
         exit(1)
 
 
-def _List(args: argparse.Namespace, collect: bool=True) -> list[str]:
+def _List(args: argparse.Namespace, collect: bool = True) -> list[str]:
     result = []
     if args.campaign_store is None:
         print("ERROR: Set --campaign_store for this command")
