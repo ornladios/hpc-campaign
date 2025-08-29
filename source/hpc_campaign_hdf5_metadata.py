@@ -94,9 +94,14 @@ def IsHDF5Dataset(dataset):
     return it_is
 
 
-if __name__ == "__main__":
+def main():
     infilename = sys.argv[1]
     outfilename = sys.argv[2]
     insize, outsize = copy_hdf5_file_without_data(infilename, outfilename, log=True)
     print(f"{infilename} size = {insize}")
     print(f"{outfilename} size = {outsize}")
+
+
+if __name__ == "__main__":
+    main()
+

@@ -107,7 +107,12 @@ def _List(args: argparse.Namespace, collect: bool = True) -> list[str]:
     return result
 
 
-if __name__ == "__main__":
+def main():
     args = _SetupArgs()
     _CheckCampaignStore(args)
     _List(args, collect=False)
+
+
+if __name__ == "__main__":
+    main()
+

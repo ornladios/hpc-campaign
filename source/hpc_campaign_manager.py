@@ -1018,7 +1018,8 @@ def DeleteCampaignFile(args: argparse.Namespace):
         return 1
 
 
-if __name__ == "__main__":
+
+def main():
     parser = ArgParser()
     CheckCampaignStore(parser.args)
 
@@ -1092,3 +1093,8 @@ if __name__ == "__main__":
             print(f"  {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         print("!!!!")
         print()
+
+
+if __name__ == "__main__":
+    main()
+
