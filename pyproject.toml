@@ -12,7 +12,10 @@ readme = "README.md"
 authors = [
     {name = "Norbert Podhorszki", email = "pnorbert@ornl.gov"}
 ]
-license = {file = "LICENSE"}
+
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
 dynamic = ["version"]
 keywords = ["campaign", "remote data", "adios2", "hdf5"]
 classifiers = [
@@ -20,7 +23,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Intended Audience :: Education",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    #"License :: OSI Approved :: Apache Software License",
     "Natural Language :: English",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.10",
@@ -39,12 +42,20 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "//https://github.com/ornladios/hpc-campaign"
+Source = "https://github.com/ornladios/hpc-campaign"
 Tracker = "https://github.com/ornladios/hpc-campaign/issues"
 Documentation = "https://hpc-campaign.readthedocs.io/en/latest/"
 
-[tool.setuptools]
-packages = ["hpc-campaign"]
+[tool.setuptools.packages.find]
+where = ["source"]
+
+[project.scripts]
+hpc_campaign_cache = "hpc_campaign_cache:main"
+hpc_campaign_connector = "hpc_campaign_connector:main"
+hpc_campaign_genkey = "hpc_campaign_genkey:main"
+hpc_campaign_hdf5_metadata = "hpc_campaign_hdf5_metadata:main"
+hpc_campaign_list = "hpc_campaign_list:main"
+hpc_campaign_manager = "hpc_campaign_manager:main"
 
 [tool.black] 
 line-length = 120
@@ -53,3 +64,4 @@ line-length = 120
 include = ["source"]
 exclude = ["**/__pycache__"]
 reportPossiblyUnboundVariable = false
+

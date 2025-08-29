@@ -179,7 +179,7 @@ def connect_to_redis(host: str, port: int, db: int) -> redis.Redis:
     return r
 
 
-if __name__ == "__main__":
+def main():
     # default values
     cfg = Config()
     args = setup_args(cfg)
@@ -205,3 +205,8 @@ if __name__ == "__main__":
             print("Missing campaign archive argument for clearing cache")
             exit(1)
         clear_cache(args, cfg, kvdb)
+
+
+if __name__ == "__main__":
+    main()
+

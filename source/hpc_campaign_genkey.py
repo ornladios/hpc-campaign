@@ -51,7 +51,7 @@ def check_path_for_reading(path: str):
         exit(1)
 
 
-if __name__ == "__main__":
+def main():
     args = setup_args()
     key = Key()
     if args.command == "generate":
@@ -68,3 +68,7 @@ if __name__ == "__main__":
         check_path_for_reading(args.path)
         key.read(args.path)
         key.info(False)
+
+if __name__ == "__main__":
+    main()
+
