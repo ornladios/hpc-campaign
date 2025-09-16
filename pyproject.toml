@@ -53,6 +53,9 @@ packages = ["hpc_campaign"]
 [tool.setuptools.package-dir]
 hpc_campaign = "source"
 
+[tool.setuptools.dynamic]
+version = { attr = "hpc_campaign.__version__" }
+
 [project.scripts]
 hpc_campaign_cache = "hpc_campaign.hpc_campaign_cache:main"
 hpc_campaign_connector = "hpc_campaign.hpc_campaign_connector:main"
