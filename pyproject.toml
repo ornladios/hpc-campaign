@@ -47,16 +47,19 @@ Source = "https://github.com/ornladios/hpc-campaign"
 Tracker = "https://github.com/ornladios/hpc-campaign/issues"
 Documentation = "https://hpc-campaign.readthedocs.io/en/latest/"
 
-[tool.setuptools.packages.find]
-where = ["source"]
+[tool.setuptools]
+packages = ["hpc_campaign"]
+
+[tool.setuptools.package-dir]
+hpc_campaign = "source"
 
 [project.scripts]
-hpc_campaign_cache = "hpc_campaign_cache:main"
-hpc_campaign_connector = "hpc_campaign_connector:main"
-hpc_campaign_genkey = "hpc_campaign_genkey:main"
-hpc_campaign_hdf5_metadata = "hpc_campaign_hdf5_metadata:main"
-hpc_campaign_list = "hpc_campaign_list:main"
-hpc_campaign_manager = "hpc_campaign_manager:main"
+hpc_campaign_cache = "hpc_campaign.hpc_campaign_cache:main"
+hpc_campaign_connector = "hpc_campaign.hpc_campaign_connector:main"
+hpc_campaign_genkey = "hpc_campaign.hpc_campaign_genkey:main"
+hpc_campaign_hdf5_metadata = "hpc_campaign.hpc_campaign_hdf5_metadata:main"
+hpc_campaign_list = "hpc_campaign.hpc_campaign_list:main"
+hpc_campaign_manager = "hpc_campaign.hpc_campaign_manager:main"
 
 [tool.black] 
 line-length = 120

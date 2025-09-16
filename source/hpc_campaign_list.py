@@ -6,7 +6,7 @@ import re
 import fnmatch
 from os.path import exists, isdir, dirname, basename, expanduser
 
-from hpc_campaign_config import Config, ADIOS_ACA_VERSION
+from hpc_campaign.hpc_campaign_config import Config, ADIOS_ACA_VERSION
 
 
 def List(*patterns, wildcard: bool = False):
