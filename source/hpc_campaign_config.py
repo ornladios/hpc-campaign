@@ -3,10 +3,11 @@
 import yaml
 from os.path import expanduser
 
-ADIOS_ACA_VERSION = "0.5"
+ACA_VERSION = "0.5"
 # 0.2 added key encryption (added table key, modfified table bpdataset)
 # 0.3 generate UUID for each bpdataset (modified table bpdataset)
 # 0.4 added h5dataset table
+# 0.5 reorganized to "dataset" table, plus text and images, replicas, archives
 
 REDIS_PORT = 6379
 
@@ -15,11 +16,11 @@ class Config:
     """User config and Hosts config file parser"""
 
     def __init__(self):
-        self.campaign_store_path: str = None
-        self.host_name: str = None
-        self.cache_path: str = None
+        self.campaign_store_path = None
+        self.host_name = None
+        self.cache_path = None
         self.verbose: int = 0
-        path = expanduser("~/.config/adios2/adios2.yaml")
+        path = expanduser("~/.config/hpc-campaign/config.yaml")
         try:
             doc = {}
             with open(path) as f:
@@ -39,7 +40,7 @@ class Config:
             None
 
     def read_host_config(self) -> dict:
-        path = expanduser("~/.config/adios2/hosts.yaml")
+        path = expanduser("~/.config/hpc-campaign/hosts.yaml")
         doc = {}
         try:
             with open(path) as f:

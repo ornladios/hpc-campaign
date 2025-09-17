@@ -20,7 +20,14 @@ Besides these packages, Python needs support for Tcl/Tk (python3-tk), so that *h
 How to install
 --------------
 
-HPC Campaign Management is just a bunch of Python scripts that can be installed in your Python environment, or can just be accessed by setting PYTHONPATH.
+The easiest way to install HPC Campaign Management is with pip3. 
+
+.. code-block:: console
+
+    (.venv) $ pip3 install hpc-campaign
+    (.venv) $ hpc_campaign_list
+
+HPC Campaign Management is just a bunch of Python scripts that can be installed in your Python environment from the repository, or can just be accessed by setting PYTHONPATH. 
 
 .. code-block:: console
 
@@ -42,8 +49,8 @@ or
 Setup 
 -----
 
-~/.config/adios2/adios2.yaml
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~/.config/hpc-campaign/config.yaml
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 There are three paths/names important in the campaign setup. 
 
@@ -53,11 +60,11 @@ There are three paths/names important in the campaign setup.
 
 - `cachepath` is the directory where ADIOS can unpack metadata from the campaign archive so that ADIOS engines can read them as if they were entirely local datasets. The cache contains the metadata as well as data that have already been retrieved by previous read requests. 
 
-Use `~/.config/adios2/adios2.yaml` to specify these options. 
+Use `~/.config/hpc-campaign/config.yaml` to specify these options. 
 
 .. code-block:: bash
 		
-    $ cat ~/.config/adios2/adios2.yaml
+    $ cat ~/.config/hpc-campaign/config.yaml
 
     Campaign:
       hostname: OLCF
@@ -72,12 +79,12 @@ Use `~/.config/adios2/adios2.yaml` to specify these options.
     $ python3 -m hpc_campaign_list
     demoproject/frontier_gray-scott_100.aca
 
-~/.config/adios2/hosts.yaml
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~/.config/hpc-campaign/hosts.yaml
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-    $ cat ~/.config/adios2/hosts.yaml
+    $ cat ~/.config/hpc-campaign/hosts.yaml
 
     OLCF:
         dtn-ssh:

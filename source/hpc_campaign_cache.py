@@ -58,7 +58,7 @@ def folder_size(folder_path: str) -> int:
     return folder_size
 
 
-def list_cache(args: argparse.Namespace, kvdb: redis.Redis):
+def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     archives = {}  # organize datasets to archives
     cache_folders = glob("[0-9a-f][0-9a-f][0-9a-f]", root_dir=cfg.cache_path)
     if args.verbose > 1:
@@ -198,7 +198,7 @@ def main():
     if args.command == "list":
         if args.CampaignFileName is not None:
             print("Ignoring campaign archive argument")
-        list_cache(args, kvdb)
+        list_cache(args, cfg, kvdb)
 
     elif args.command == "clear":
         if args.CampaignFileName is None:
