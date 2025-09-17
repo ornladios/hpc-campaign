@@ -18,7 +18,7 @@ from socket import getfqdn
 from time import time_ns, sleep
 
 from hpc_campaign.hpc_campaign_key import read_key
-from hpc_campaign.hpc_campaign_config import ADIOS_ACA_VERSION
+from hpc_campaign.hpc_campaign_config import ACA_VERSION
 from hpc_campaign.hpc_campaign_utils import timestamp_to_str, SQLCommit, SQLExecute, SQLErrorList, get_folder_size, sizeof_fmt
 from hpc_campaign.hpc_campaign_hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
 from hpc_campaign.hpc_campaign_manager_args import ArgParser
@@ -690,7 +690,7 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
     SQLExecute(
         cur,
         "insert into info values (?, ?, ?, ?)",
-        ("ACA", "ADIOS Campaign Archive", ADIOS_ACA_VERSION, CURRENT_TIME),
+        ("ACA", "ADIOS Campaign Archive", ACA_VERSION, CURRENT_TIME),
     )
 
     SQLExecute(cur, "create table key" + "(keyid TEXT PRIMARY KEY)")

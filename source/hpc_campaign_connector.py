@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HOST = "127.0.0.1"
 PORT = 65432
 SSH_PORT = 22
-REMOTE_CONFIG_FILE = "~/.config/adios2/hosts.yaml"
+REMOTE_CONFIG_FILE = "~/.config/hpc-campaign/hosts.yaml"
 
 SSH_CONNECT_ERROR = 101
 SSH_TUNNEL_ERROR = 102
@@ -1439,7 +1439,7 @@ g_keys: dict = {}
 
 
 def read_keys():
-    keys_pattern = os.path.expanduser("~/.config/adios2/keys/*")
+    keys_pattern = os.path.expanduser("~/.config/hpc-campaign/keys/*")
     keyFileList = glob.glob(keys_pattern)
     for f in keyFileList:
         print(f"Loading key {f}")
