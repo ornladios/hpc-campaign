@@ -51,7 +51,7 @@ Documentation = "https://hpc-campaign.readthedocs.io/en/latest/"
 packages = ["hpc_campaign"]
 
 [tool.setuptools.package-dir]
-hpc_campaign = "source"
+hpc_campaign = "hpc_campaign"
 
 [tool.setuptools.dynamic]
 version = { attr = "hpc_campaign.__version__" }
@@ -68,7 +68,7 @@ hpc_campaign_manager = "hpc_campaign.hpc_campaign_manager:main"
 line-length = 120
 
 [tool.pyright]
-include = ["source"]
+include = ["hpc_campaign"]
 exclude = ["**/__pycache__"]
 reportPossiblyUnboundVariable = false
 
