@@ -35,7 +35,7 @@ def main():
 
     exec(
         'from .{0} import main as cmd'.format(subcmd),
-        globals=globals()
+        globals()
     )
 
     cmd(args=args, prog=prog)
