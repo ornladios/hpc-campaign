@@ -13,9 +13,9 @@ This toolkit requires the following Python packages.
 - PyNaCl for encoding metadata with keys
 - pillow for processing images
 - h5py for adding HDF5 files
-- redis for *hpc_campaign_cache* to list local cache information (Redis is used by ADIOS2 for caching)
+- redis for *hpc_campaign cache* to list local cache information (Redis is used by ADIOS2 for caching)
 
-Besides these packages, Python needs support for Tcl/Tk (python3-tk), so that *hpc_campaign_connector* can pop up a dialog for password entries.
+Besides these packages, Python needs support for Tcl/Tk (python3-tk), so that *hpc_campaign connector* can pop up a dialog for password entries.
 
 How to install
 --------------
@@ -25,25 +25,25 @@ The easiest way to install HPC Campaign Management is with pip3.
 .. code-block:: console
 
     (.venv) $ pip3 install hpc-campaign
-    (.venv) $ hpc_campaign_list
+    (.venv) $ hpc_campaign list
 
-HPC Campaign Management is just a bunch of Python scripts that can be installed in your Python environment from the repository, or can just be accessed by setting PYTHONPATH. 
+HPC Campaign Management is just a bunch of Python scripts that can be installed in your Python environment from the repository, 
 
 .. code-block:: console
 
     (.venv) $ git clone https://github.com/ornladios/hpc-campaign.git
     (.venv) $ cd hpc-campaign
     (.venv) $ pip3 install -e .
-    (.venv) $ hpc_campaign_list
+    (.venv) $ hpc_campaign list
 
-or
+or can be accessed without installation by setting PYTHONPATH 
 
 .. code-block:: bash
 
     $ git clone https://github.com/ornladios/hpc-campaign.git
     $ cd hpc-campaign
-    $ export PYTHONPATH=${PWD}/source:$PYTHONPATH
-    $ python3 -m hpc_campaign_list
+    $ export PYTHONPATH=${PWD}:$PYTHONPATH
+    $ python3 -m hpc_campaign list
 
 
 Setup 
@@ -76,7 +76,7 @@ Use `~/.config/hpc-campaign/config.yaml` to specify these options.
     /lustre/orion/csc143/proj-shared/campaign-store/demoproject:
     frontier_gray-scott_100.aca
 
-    $ python3 -m hpc_campaign_list
+    $ hpc_campaign list
     demoproject/frontier_gray-scott_100.aca
 
 ~/.config/hpc-campaign/hosts.yaml
