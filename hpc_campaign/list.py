@@ -6,7 +6,7 @@ import re
 import fnmatch
 from os.path import exists, isdir, dirname, basename, expanduser
 
-from hpc_campaign.hpc_campaign_config import Config
+from .config import Config
 
 
 def List(*patterns, wildcard: bool = False):

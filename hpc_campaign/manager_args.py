@@ -4,7 +4,7 @@ import argparse
 import sys
 from os.path import exists, basename
 
-from hpc_campaign.hpc_campaign_config import Config
+from .config import Config
 
 __accepted_commands__ = [
     "create",

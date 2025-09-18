@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 from os.path import expanduser
 from datetime import datetime
 
-from hpc_campaign.hpc_campaign_key import Key, read_key
+from .key import Key, read_key
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

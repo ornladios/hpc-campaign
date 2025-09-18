@@ -12,8 +12,8 @@ from time import sleep
 
 import redis.exceptions
 
-from hpc_campaign.hpc_campaign_config import Config, REDIS_PORT
-from hpc_campaign.hpc_campaign_utils import timestamp_to_datetime, input_yes_or_no
+from .config import Config, REDIS_PORT
+from .utils import timestamp_to_datetime, input_yes_or_no
 
 
 def setup_args(cfg: Config):
