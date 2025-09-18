@@ -16,8 +16,8 @@ from .config import Config, REDIS_PORT
 from .utils import timestamp_to_datetime, input_yes_or_no
 
 
-def setup_args(cfg: Config):
-    parser = argparse.ArgumentParser()
+def setup_args(cfg: Config, args=None, prog=None):
+    parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument(
         "command",
         help="Command: list/clear",
@@ -27,7 +27,7 @@ def setup_args(cfg: Config):
     parser.add_argument("--redis-port", "-p", help="Key-value database port", default=REDIS_PORT)
     parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
     parser.add_argument("--yes-to-all", "-y", help="Answer yes automatically", action="store_true", default=False)
-    args = parser.parse_args()
+    args = parser.parse_args(args=args)
 
     args.CampaignFileName = args.campaign
     if args.campaign is not None:
@@ -179,10 +179,10 @@ def connect_to_redis(host: str, port: int, db: int) -> redis.Redis:
     return r
 
 
-def main():
+def main(args=None, prog=None):
     # default values
     cfg = Config()
-    args = setup_args(cfg)
+    args = setup_args(cfg, args=args, prog=prog)
     if not cfg.cache_path:
         print("No cachepath specified in user config")
         exit(1)

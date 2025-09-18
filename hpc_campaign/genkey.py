@@ -5,8 +5,8 @@ from os.path import exists
 from .key import Key
 
 
-def setup_args():
-    parser = argparse.ArgumentParser()
+def setup_args(args=None, prog=None):
+    parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument(
         "command",
         help="Command: generate/verify/info",
@@ -15,7 +15,7 @@ def setup_args():
     parser.add_argument("path", help="path of keyfile")
     parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
     parser.add_argument("--password", "-p", help="Protect with password", action="store_true", default=False)
-    args = parser.parse_args()
+    args = parser.parse_args(args=args)
 
     if args.verbose > 0:
         print(f"# Verbosity = {args.verbose}")
@@ -51,8 +51,8 @@ def check_path_for_reading(path: str):
         exit(1)
 
 
-def main():
-    args = setup_args()
+def main(args=None, prog=None):
+    args = setup_args(args=args, prog=prog)
     key = Key()
     if args.command == "generate":
         check_path_for_creation(args.path)
