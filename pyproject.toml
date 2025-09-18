@@ -57,12 +57,7 @@ packages = ["hpc_campaign"]
 version = { attr = "hpc_campaign.__version__" }
 
 [project.scripts]
-hpc_campaign_cache = "hpc_campaign.cache:main"
-hpc_campaign_connector = "hpc_campaign.connector:main"
-hpc_campaign_genkey = "hpc_campaign.genkey:main"
-hpc_campaign_hdf5_metadata = "hpc_campaign.hdf5_metadata:main"
-hpc_campaign_list = "hpc_campaign.list:main"
-hpc_campaign_manager = "hpc_campaign.manager:main"
+hpc_campaign="hpc_campaign.__main__:main"
 
 [tool.black] 
 line-length = 120

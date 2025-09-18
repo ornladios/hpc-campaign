@@ -1500,8 +1500,8 @@ def start_server(argv):
             server.server_close()
 
 
-def main():
-    start_server(sys.argv[1:])
+def main(args=sys.argv[1:], prog=None):
+    start_server(args)
 
 
 if __name__ == "__main__":

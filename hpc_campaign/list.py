@@ -37,7 +37,7 @@ def _SetupArgs(args=None, prog=None):
     )
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
-    args = parser.parse_args(args)
+    args = parser.parse_args(args=args)
     return _SetDefaults(args)
 
 

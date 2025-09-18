@@ -1,6 +1,6 @@
 import sys
 import argparse
-from .list import main as List
+
 
 
 def ArgParse():
@@ -10,16 +10,37 @@ def ArgParse():
         add_help=False
     parser = argparse.ArgumentParser(add_help=add_help, prog="hpc_campaign")
 
-    parser.add_argument("subcmd", help='Sub command', choices=["list"])
+    parser.add_argument(
+        "subcmd",
+        help='Sub command',
+        choices=[
+            "cache",
+            "connector",
+            "genkey",
+            "hdf5_metadata",
+            "list",
+            "manager",
+        ]
+    )
+
     known, unknown = parser.parse_known_args()
 
     return known.subcmd, unknown
 
 
-if __name__ == "__main__":
+def main():
 
     subcmd, args = ArgParse()
     prog = "hpc_campaign {0}".format(subcmd)
 
-    if subcmd == "list":
-        List(args=args, prog=prog)
+    exec(
+        'from .{0} import main as cmd'.format(subcmd),
+        globals=globals()
+    )
+
+    cmd(args=args, prog=prog)
+
+
+if __name__ == "__main__":
+    
+    main()

@@ -34,9 +34,9 @@ class ArgParser:
 
     """
 
-    def __init__(self):
-        self.parsers = self.setup_args()
-        self.commandlines = self.divide_cmdline(__accepted_commands__)
+    def __init__(self, args=sys.argv[1:], prog=prog):
+        self.parsers = self.setup_args(prog=prog)
+        self.commandlines = self.divide_cmdline(__accepted_commands__, args=args)
         self.args = self.parse_args_main(self.parsers["main"], self.commandlines[0])
         self.cmdidx = 1
         self.prev_command = None
@@ -57,10 +57,10 @@ class ArgParser:
         else:
             return False
 
-    def divide_cmdline(self, commands: list):
+    def divide_cmdline(self, commands: list, args=sys.argv[1:]):
         # Divide argv by commands
         split_argv = [[]]
-        for c in sys.argv[1:]:
+        for c in args:
             if c in commands:
                 split_argv.append([c])
             else:
@@ -146,7 +146,7 @@ class ArgParser:
                     "Invalid arguments for text: when using --name <name>, " "only one text file is allowed"
                 )
 
-    def setup_args(self) -> dict:
+    def setup_args(self, prog=prog) -> dict:
         parser = argparse.ArgumentParser(
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
