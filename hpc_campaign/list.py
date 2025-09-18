@@ -25,8 +25,8 @@ def List(*patterns, wildcard: bool = False):
     return _List(args, collect=True)
 
 
-def _SetupArgs():
-    parser = argparse.ArgumentParser()
+def _SetupArgs(args=None, prog=None):
+    parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument("pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*")
     parser.add_argument(
         "-w",
@@ -37,7 +37,7 @@ def _SetupArgs():
     )
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
-    args = parser.parse_args()
+    args = parser.parse_args(args)
     return _SetDefaults(args)
 
 
@@ -107,8 +107,8 @@ def _List(args: argparse.Namespace, collect: bool = True) -> list[str]:
     return result
 
 
-def main():
-    args = _SetupArgs()
+def main(args=None, prog=None):
+    args = _SetupArgs(args=args, prog=prog)
     _CheckCampaignStore(args)
     _List(args, collect=False)
 
