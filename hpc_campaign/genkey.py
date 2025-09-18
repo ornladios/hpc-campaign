@@ -2,7 +2,7 @@
 import argparse
 from os import remove
 from os.path import exists
-from .hpc_campaign_key import Key
+from .key import Key
 
 
 def setup_args():

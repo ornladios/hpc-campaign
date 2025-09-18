@@ -17,11 +17,11 @@ from re import sub
 from socket import getfqdn
 from time import time_ns, sleep
 
-from .hpc_campaign_key import read_key
-from .hpc_campaign_config import ACA_VERSION
-from .hpc_campaign_utils import timestamp_to_str, SQLCommit, SQLExecute, SQLErrorList, get_folder_size, sizeof_fmt
-from .hpc_campaign_hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
-from .hpc_campaign_manager_args import ArgParser
+from .key import read_key
+from .config import ACA_VERSION
+from .utils import timestamp_to_str, SQLCommit, SQLExecute, SQLErrorList, get_folder_size, sizeof_fmt
+from .hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
+from .manager_args import ArgParser
 
 CURRENT_TIME = time_ns()
 
