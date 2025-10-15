@@ -148,13 +148,14 @@ class ArgParser:
 
     def setup_args(self, prog=prog) -> dict:
         parser = argparse.ArgumentParser(
+            prog=prog,
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 A campaign archive name without '.aca' extension will be forced to have '.aca'.
 If it exists, 'campaignstorepath' in ~/.config/hpc-campaign/config.yaml will be used for
 relative paths for <archive> names.
 Multiple commands can be used in one run.
-Type '%(prog)s x <command> -h' for help on commands.
+Type '%(prog)s <archive> <command> -h' for help on commands.
 """,
         )
         parsers = {}
