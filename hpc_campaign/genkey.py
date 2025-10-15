@@ -69,6 +69,6 @@ def main(args=None, prog=None):
         key.read(args.path)
         key.info(False)
 
+
 if __name__ == "__main__":
     main()
-

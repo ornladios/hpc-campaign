@@ -21,7 +21,6 @@ __accepted_commands_str__ = " | ".join(__accepted_commands__)
 
 prog = basename(sys.argv[0])
 
-
 class ArgParser:
     """
     Process command-line arguments for the campaign manager
@@ -279,16 +278,22 @@ Record an archival storage of <system> type to the list of <host>/<directory>.
 Attach a --note that contains specific information on how to access the archival storage.
 The <host> is a short name used to identify hosts in the campaign. Use --longhostname
 to record the full hostname.
+If the archive is a TAR file, add the filename of the TAR file separately in <tarfilename>.
+If the TAR file is on a remotely accessible system that allows reading chunks from it, 
+you can generate an index of the contained files, and the datasets in the campaign archive
+will be pointing to specific offsets in the TAR file. 
 """,
         )
         parsers["add-archival-storage"] = parser_addarchive
         parser_addarchive.add_argument(
             "system",
-            choices=["Kronos", "HPSS", "fs"],
+            choices=["Kronos", "HPSS", "fs", "https"],
             help="Name of archival system of this location",
         )
         parser_addarchive.add_argument("host", help="Archival host's name", type=str)
         parser_addarchive.add_argument("directory", help="Archival host's directory", type=str)
+        parser_addarchive.add_argument("tarfilename", nargs="?", help="TAR file in directory")
+        parser_addarchive.add_argument("tarfileidx", nargs="?", help="Index for TAR file")
         parser_addarchive.add_argument("--longhostname", metavar="str", help="Optional long host name")
         parser_addarchive.add_argument("--note", metavar="fname", help="Optional notes file")
 
@@ -306,11 +311,15 @@ Use info -r to list replicas in the campaign archive (and also to find the
 archival directory's id).
 If there are more than one, conflicting, replicas then --repid must be used
 to indicate which version was archived.
+If a directory has multiple archives (e.g. .\ and a TAR file), use --archiveid ID, 
+which is the second integer in the listing of directories under an archive directory
 """,
         )
         parsers["archived"] = parser_archive
         parser_archive.add_argument("name", help="Name of dataset", type=str)
         parser_archive.add_argument("dirid", help="Archival host's directory ID", type=int)
+        parser_archive.add_argument("--archiveid", help="Optional archive ID if there are more than one archives in the same directory", 
+                                    type=int)
         parser_archive.add_argument(
             "--newpath", help="Replica's new relative path under archival directory", type=str, metavar="str"
         )
@@ -364,9 +373,12 @@ datasets to the list of existing datasets, unless --replace is given.
             del args.host
             del args.system
             del args.directory
+            del args.tarfilename
+            del args.tarfileidx
         elif command == "archived":
             del args.name
             del args.dirid
+            del args.archiveid
             del args.newpath
             del args.replica
             del args.move
