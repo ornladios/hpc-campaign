@@ -2,8 +2,6 @@ Usage
 =====
 
 
-
-
 Creating a Campaign archive file
 --------------------------------
 
@@ -13,7 +11,7 @@ A campaign archive name without the required `.aca` extension will be automatica
 
 .. note::
 
-Updates to moving data for other location is not supported yet
+  Updates to moving data for other location is not supported yet
 
 
 **Global Usage and Options**
@@ -22,7 +20,7 @@ The manager command is invoked using the following general format:
 
 .. code-block:: bash
 
-usage: hpc_campaign manager <archive> [command] [options]
+  usage: hpc_campaign manager <archive> [command] [options]
 
 The [command] argument must be one of the following: create | delete | info | dataset | text | image | add-archival-storage | archived | time-series. In addition, the following options are available globally for the manager command to overwrite the default options:
 
@@ -43,7 +41,7 @@ Creates a new campaign archive file stored in the specified or default path to t
 
 .. code-block:: bash
 
-hpc_campaign manager test_campaign_001 create
+  hpc_campaign manager test_campaign_001 create
 
 
 **2. delete**
@@ -53,7 +51,7 @@ Example usage:
 
 .. code-block:: bash
 
-hpc_campaign manager test_campaign_001 delete [options]
+  hpc_campaign manager test_campaign_001 delete [options]
 
 The optional options specifies what will be deleted:
 
@@ -70,7 +68,7 @@ Example usage:
 
 .. code-block:: bash
 
-hpc_campaign manager test_campaign_001 info [options]
+  hpc_campaign manager test_campaign_001 info [options]
 
 The optional options allow listing replicas, entries that have been deleted and checksums. A complete list of options can be found in the help menu (`-h` option).
 
@@ -80,14 +78,14 @@ Adds one or more datasets to the archive with datasets being valid HDF5 or ADIOS
 
 .. note::
 
-A temporary file is created from HDF5 files during processing, so write access to the ``/tmp`` directory is required.
+  A temporary file is created from HDF5 files during processing, so write access to the ``/tmp`` directory is required.
 
 
 Example usage:
 
 .. code-block:: bash
 
-hpc_campaign manager test_campaign_001 dataset run_001.bp run_002.h5
+  hpc_campaign manager test_campaign_001 dataset run_001.bp run_002.h5
 
 
 Additional option (`--name <NAME>`) can specify the representation name for the dataset in the campaign hierarchy. The same option can be applied to the text and image commands.
@@ -99,14 +97,14 @@ Add one or more text files or image files to the archive. Text files are always 
 
 .. note::
 
-Since text is stored internally, be mindful of the resulting archive's size when adding large text files.
+  Since text is stored internally, be mindful of the resulting archive's size when adding large text files.
 
 Example usage:
 
 .. code-block:: bash
 
-hpc_campaign manager test_campaign_001 text input.json
-hpc_campaign manager test_campaign_001 image 2dslice.jpg
+  hpc_campaign manager test_campaign_001 text input.json
+  hpc_campaign manager test_campaign_001 image 2dslice.jpg
 
 
 Additional options for images include:
@@ -141,39 +139,39 @@ Configuration:
 
 .. code-block:: bash
 
-$ hpc_campaign manager demoproject/test_campaign_001 delete --campaign
-$ hpc_campaign manager demoproject/test_campaign_001 create
-$ hpc_campaign manager demoproject/test_campaign_001 text runs/input-configuration.json
-$ hpc_campaign manager demoproject/test_campaign_001 dataset runs/simulation-output.bp runs/simulation-chekpoint.bp
-$ hpc_campaign manager demoproject/test_campaign_001 dataset analysis/pdf.bp
-$ hpc_campaign manager demoproject/test_campaign_001 image analysis/plot-2d.json --store
+  $ hpc_campaign manager demoproject/test_campaign_001 delete --campaign
+  $ hpc_campaign manager demoproject/test_campaign_001 create
+  $ hpc_campaign manager demoproject/test_campaign_001 text runs/input-configuration.json
+  $ hpc_campaign manager demoproject/test_campaign_001 dataset runs/simulation-output.bp runs/simulation-chekpoint.bp
+  $ hpc_campaign manager demoproject/test_campaign_001 dataset analysis/pdf.bp
+  $ hpc_campaign manager demoproject/test_campaign_001 image analysis/plot-2d.json --store
 
-$ hpc_campaign manager demoproject/test_campaign_001 info
-=============================
-ADIOS Campaign Archive, version 0.5, created on Oct 18 14:29
+  $ hpc_campaign manager demoproject/test_campaign_001 info
+  =========================================================
+  ADIOS Campaign Archive, version 0.5, created on Oct 18 14:29
 
-Hosts and directories:
-  OLCF   longhostname = frontier05341.frontier.olcf.ornl.gov
-    1. /path/to/simulation
+  Hosts and directories:
+    OLCF   longhostname = frontier05341.frontier.olcf.ornl.gov
+      1. /path/to/simulation
 
-Other Datasets:
-    3a4bf0b14cc33424a470862bd67ed007  TEXT   Oct 18 14:25   runs/input-configuration.json
-    0fce4b1173f432f7ae5d2282df9077a6  ADIOS  Oct 18 14:25   runs/simulation-output.bp
-    aa5d2282df9077a60fc643f5ab53b351  ADIOS  Oct 18 14:26   runs/simulation-chekpoint.bp
-    b42d0da4a0793adca341ace1ff6e628d  ADIOS  Oct 18 14:28   analysis/pdf.bp
-    85a0b724b22f37a4a79ad8a0cf1127d1  IMAGE  Oct 18 14:24   analysis/plot-2d.json
+  Other Datasets:
+      3a4bf0b14cc33424a470862bd67ed007  TEXT   Oct 18 14:25   runs/input-configuration.json
+      0fce4b1173f432f7ae5d2282df9077a6  ADIOS  Oct 18 14:25   runs/simulation-output.bp
+      aa5d2282df9077a60fc643f5ab53b351  ADIOS  Oct 18 14:26   runs/simulation-chekpoint.bp
+      b42d0da4a0793adca341ace1ff6e628d  ADIOS  Oct 18 14:28   analysis/pdf.bp
+      85a0b724b22f37a4a79ad8a0cf1127d1  IMAGE  Oct 18 14:24   analysis/plot-2d.json
 
 
 Comparing the campaign archive size to the data it points to can be done by the default method on each operating system.
 
 .. code-block:: bash
 
-$ du -sh runs/*bp
-263M    simulation-chekpoint.bp
-3.8G    simulation-output.bp
+  $ du -sh runs/*bp
+  263M    simulation-chekpoint.bp
+  3.8G    simulation-output.bp
 
-$ du -sh /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
-127K     /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
+  $ du -sh /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
+  127K     /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
 
 
 Launch local connection server
