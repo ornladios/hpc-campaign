@@ -155,7 +155,6 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     info = res.fetchone()
     t = timestamp_to_datetime(info[3])
     print(f"{info[1]}, version {info[2]}, created on {t}")
-    version = float(info[2])
 
     res = cur.execute("select rowid, uuid, name, modtime from dataset")
     datasets = res.fetchall()
@@ -169,7 +168,7 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     con.close()
 
 
-def connect_to_redis(host: str, port: int, db: int) -> redis.Redis:
+def connect_to_redis(host: str, port: int, db: int) -> redis.Redis | None:
     r = redis.Redis(host=host, port=port, db=db)
     try:
         r.ping()
@@ -209,4 +208,3 @@ def main(args=None, prog=None):
 
 if __name__ == "__main__":
     main()
-
