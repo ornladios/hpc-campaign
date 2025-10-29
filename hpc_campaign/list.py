@@ -9,7 +9,7 @@ from os.path import exists, isdir, dirname, basename, expanduser
 from .config import Config
 
 
-def List(*patterns, wildcard: bool = False):
+def List(*patterns, wildcard: bool = False, campaign_store=None):
     args = argparse.Namespace()
     if wildcard:
         args.wildcard = True
@@ -22,7 +22,7 @@ def List(*patterns, wildcard: bool = False):
     args.campaign_store = None
     args = _SetDefaults(args)
     _CheckCampaignStore(args)
-    return _List(args, collect=True)
+    return _List(args, collect=True, campaign_store=campaign_store)
 
 
 def _SetupArgs(args=None, prog=None):
@@ -69,12 +69,14 @@ def _CheckCampaignStore(args):
         exit(1)
 
 
-def _List(args: argparse.Namespace, collect: bool = True) -> list[str]:
+def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
     result = []
-    if args.campaign_store is None:
+    path = campaign_store
+    if path is None:
+        path = args.campaign_store
+    if path is None:
         print("ERROR: Set --campaign_store for this command")
         return result
-    path = args.campaign_store
 
     # List the local campaign store
     acaList = glob.glob(path + "/**/*.aca", recursive=True)
