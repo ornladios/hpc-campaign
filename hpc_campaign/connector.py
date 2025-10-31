@@ -1506,4 +1506,3 @@ def main(args=sys.argv[1:], prog=None):
 
 if __name__ == "__main__":
     main()
-

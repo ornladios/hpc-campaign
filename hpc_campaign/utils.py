@@ -3,7 +3,7 @@ from time import sleep
 from os import walk
 from os.path import join, getsize
 import sqlite3
-
+import tarfile
 
 def timestamp_to_datetime(timestamp: int) -> datetime:
     digits = len(str(int(timestamp)))
@@ -113,3 +113,26 @@ def SQLCommit(con: sqlite3.Connection):
     except sqlite3.Error as e:
         print(f"SQL commit Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         raise e
+
+
+TARTYPES = {
+    "reg": 0,
+    "lnk": 1,
+    "sym": 2,
+    "chr": 3,
+    "blk": 4,
+    "dir": 5,
+    "fifo": 6,
+    "cont": 7,
+    "longname": 8,
+    "longlink": 9,
+    "sparse": 10,
+}
+
+def CreateTarIndex(tarfilename: str, indexfile: str | None):
+    tf = tarfile.open(tarfilename)
+    if indexfile is None:
+        indexfile = tarfilename + ".idx"
+    with open(indexfile, "w") as idxf:
+        for ti in tf:
+            idxf.write(f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n')

@@ -16,10 +16,12 @@ __accepted_commands__ = [
     "add-archival-storage",
     "archived",
     "time-series",
+    "taridx"
 ]
 __accepted_commands_str__ = " | ".join(__accepted_commands__)
 
 prog = basename(sys.argv[0])
+
 
 class ArgParser:
     """
@@ -279,15 +281,15 @@ Attach a --note that contains specific information on how to access the archival
 The <host> is a short name used to identify hosts in the campaign. Use --longhostname
 to record the full hostname.
 If the archive is a TAR file, add the filename of the TAR file separately in <tarfilename>.
-If the TAR file is on a remotely accessible system that allows reading chunks from it, 
+If the TAR file is on a remotely accessible system that allows reading chunks from it,
 you can generate an index of the contained files, and the datasets in the campaign archive
-will be pointing to specific offsets in the TAR file. 
+will be pointing to specific offsets in the TAR file.
 """,
         )
         parsers["add-archival-storage"] = parser_addarchive
         parser_addarchive.add_argument(
             "system",
-            choices=["Kronos", "HPSS", "fs", "https"],
+            choices=["Kronos", "HPSS", "fs", "https", "S3"],
             help="Name of archival system of this location",
         )
         parser_addarchive.add_argument("host", help="Archival host's name", type=str)
@@ -311,15 +313,18 @@ Use info -r to list replicas in the campaign archive (and also to find the
 archival directory's id).
 If there are more than one, conflicting, replicas then --repid must be used
 to indicate which version was archived.
-If a directory has multiple archives (e.g. .\ and a TAR file), use --archiveid ID, 
+If a directory has multiple archives (e.g. ./ and a TAR file), use --archiveid ID,
 which is the second integer in the listing of directories under an archive directory
 """,
         )
         parsers["archived"] = parser_archive
         parser_archive.add_argument("name", help="Name of dataset", type=str)
         parser_archive.add_argument("dirid", help="Archival host's directory ID", type=int)
-        parser_archive.add_argument("--archiveid", help="Optional archive ID if there are more than one archives in the same directory", 
-                                    type=int)
+        parser_archive.add_argument(
+            "--archiveid",
+            help="Optional archive ID if there are more than one archives in the same directory",
+            type=int,
+        )
         parser_archive.add_argument(
             "--newpath", help="Replica's new relative path under archival directory", type=str, metavar="str"
         )
@@ -344,6 +349,19 @@ datasets to the list of existing datasets, unless --replace is given.
             "--remove", help="Remove the series definition (not the datasets)", action="store_true"
         )
 
+        # parser for the "taridx" command
+        parser_taridx = argparse.ArgumentParser(
+            prog=f"{prog} <archive>  taridx",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Create an index file from a TAR file. It can be used in the
+'add-archival-storage' command to make automatic replicas of all datasets
+in the archive and register their offsets and sizes in the TAR file.
+""",
+        )
+        parsers["taridx"] = parser_taridx
+        parser_taridx.add_argument("tarfile", help="Name of the TAR file", type=str)
+        parser_taridx.add_argument("idxfile", nargs="?", help="Optional name of the index file", type=str)
         return parsers
 
     def remove_prev_args(self, command: str, args: argparse.Namespace):
@@ -387,3 +405,5 @@ datasets to the list of existing datasets, unless --replace is given.
             del args.dataset
             del args.replace
             del args.remove
+        elif command == "taridx":
+            del args.tarfile
