@@ -1251,6 +1251,13 @@ def DeleteCampaignFile(args: argparse.Namespace):
         return 1
 
 
+def CampaignInfo(filename):
+    main(
+        args=[filename, "info"],
+        prog=None,
+    )
+
+
 def main(args=None, prog=None):
     parser = ArgParser(args=args, prog=prog)
     CheckCampaignStore(parser.args)
