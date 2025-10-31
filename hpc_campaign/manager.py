@@ -1251,6 +1251,22 @@ def DeleteCampaignFile(args: argparse.Namespace):
         return 1
 
 
+def CampaignInfo(filename):
+    import io
+    import sys
+    import re
+    output = io.StringIO()
+    sys.stdout = output
+    main(
+        args=[filename, "info"],
+        prog=None,
+    )
+    output_string = output.getvalue()
+    sys.stdout = sys.__stdout__
+    pattern = re.compile(r"^\s*(?P<uuid>[0-9a-f]{32})\s+(?P<type>ADIOS|HDF5|TEXT|IMAGE)\s+.*?\s+.*?\s+.*?\s+(?P<path>.*)", re.MULTILINE)
+    return [m.groupdict() for m in pattern.finditer(output_string)]
+
+
 def main(args=None, prog=None):
     parser = ArgParser(args=args, prog=prog)
     CheckCampaignStore(parser.args)
