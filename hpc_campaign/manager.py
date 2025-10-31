@@ -7,6 +7,7 @@ import zlib
 import uuid
 import nacl.secret
 import nacl.utils
+import csv
 from dateutil.parser import parse
 from hashlib import sha1
 from os import chdir, getcwd, remove, stat
@@ -19,7 +20,16 @@ from time import time_ns, sleep
 
 from .key import read_key
 from .config import ACA_VERSION
-from .utils import timestamp_to_str, SQLCommit, SQLExecute, SQLErrorList, get_folder_size, sizeof_fmt
+from .utils import (
+    timestamp_to_str,
+    SQLCommit,
+    SQLExecute,
+    SQLErrorList,
+    get_folder_size,
+    sizeof_fmt,
+    CreateTarIndex,
+    TARTYPES,
+)
 from .hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
 from .manager_args import ArgParser
 
@@ -132,6 +142,7 @@ def AddFileToArchive(
     filename_as_recorded: str = "",
     compress: bool = True,
     content: bytes = bytes(),
+    indent: str = "",
 ):
     if compress:
         compressed = 1
@@ -143,7 +154,7 @@ def AddFileToArchive(
                     compressed_data, len_orig, len_compressed, checksum = compressFile(f)
 
             except IOError:
-                print(f"ERROR While reading file {filename}")
+                print(f"{indent}ERROR While reading file {filename}")
                 return
     else:
         compressed = 0
@@ -154,7 +165,7 @@ def AddFileToArchive(
                 with open(filename, "rb") as f:
                     compressed_data = f.read()
             except IOError:
-                print(f"ERROR While reading file {filename}")
+                print(f"{indent}ERROR While reading file {filename}")
                 return
         len_orig = len(compressed_data)
         len_compressed = len_orig
@@ -206,11 +217,12 @@ def AddReplicaToArchive(
     datasetid: int,
     mt: float,
     size: int,
+    indent: str = "",
 ) -> int:
 
-    print(f"Add replica {dataset} to archive")
+    print(f"{indent}Add replica {dataset} to archive")
     print(
-        f"AddReplicaToArchive(host={hostID}, dir={dirID}, archive={archiveID}, key={keyID}, name={dataset}"
+        f"{indent}AddReplicaToArchive(host={hostID}, dir={dirID}, archive={archiveID}, key={keyID}, name={dataset}"
         f" dsid={datasetid}, time={mt}, size={size})"
     )
     curDS = SQLExecute(
@@ -223,15 +235,15 @@ def AddReplicaToArchive(
         (datasetid, hostID, dirID, archiveID, dataset, mt, 0, keyID, size, mt, 0, keyID, size),
     )
     rowID = curDS.fetchone()[0]
-    print(f"Replica rowid = {rowID}")
+    print(f"{indent}  Replica rowid = {rowID}")
     return rowID
 
 
 def AddDatasetToArchive(
-    args: argparse.Namespace, name: str, cur: sqlite3.Cursor, uniqueID: str, format: str, mt: float
+    args: argparse.Namespace, name: str, cur: sqlite3.Cursor, uniqueID: str, format: str, mt: float, indent: str = ""
 ) -> int:
 
-    print(f"Add dataset {name} to archive")
+    print(f"{indent}Add dataset {name} to archive")
     curDS = SQLExecute(
         cur,
         "insert into dataset (name, uuid, modtime, deltime, fileformat, tsid, tsorder) "
@@ -245,14 +257,10 @@ def AddDatasetToArchive(
 
 
 def AddResolutionToArchive(
-    args: argparse.Namespace,
-    repID: int,
-    x: int,
-    y: int,
-    cur: sqlite3.Cursor,
+    args: argparse.Namespace, repID: int, x: int, y: int, cur: sqlite3.Cursor, indent: str = ""
 ) -> int:
 
-    print(f"Add resolution {x} {y} for replica {repID} to archive")
+    print(f"{indent}Add resolution {x} {y} for replica {repID} to archive")
     curDS = SQLExecute(
         cur,
         "insert into resolution (replicaid, x, y) "
@@ -274,7 +282,6 @@ def ProcessDatasets(
     location: str,
 ):
     for entry in args.files:
-        print(f"Process entry {entry}:")
         dataset = entry
         if args.name is not None:
             dataset = args.name
@@ -294,11 +301,11 @@ def ProcessDatasets(
 
         if args.remote_data:
             dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "ADIOS", mt)
-            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize)
+            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize, indent="  ")
         elif IsADIOSDataset(entry):
             dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "ADIOS", mt)
             filesize = get_folder_size(entry)
-            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize)
+            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize, indent="  ")
             cwd = getcwd()
             chdir(entry)
             mdFileList = glob.glob("*md.*")
@@ -311,7 +318,7 @@ def ProcessDatasets(
             mdfilename = "/tmp/md_" + basename(entry)
             copy_hdf5_file_without_data(entry, mdfilename)
             dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "HDF5", mt)
-            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize)
+            repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, mt, filesize, indent="  ")
             AddFileToArchive(args, mdfilename, cur, repID, mt, basename(entry))
             remove(mdfilename)
         else:
@@ -337,7 +344,7 @@ def ProcessTextFiles(
         filesize = statres.st_size
         uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + entry).hex
         dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "TEXT", ct)
-        repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, ct, filesize)
+        repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, entry, cur, dsID, ct, filesize, indent="  ")
         if args.store:
             AddFileToArchive(args, entry, cur, repID, ct, basename(entry))
 
@@ -359,24 +366,24 @@ def ProcessImage(
     mt = statres.st_mtime_ns
     filesize = statres.st_size
     uniqueID = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + args.file).hex
-    print(f"  -- Img path = {location}/{args.file}   uuid = {uniqueID}")
+    print(f"Process image {location}/{args.file}")
 
     img = Image.open(args.file)
     imgres = img.size
 
-    dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "IMAGE", mt)
-    repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, args.file, cur, dsID, mt, filesize)
-    AddResolutionToArchive(args, repID, imgres[0], imgres[1], cur)
+    dsID = AddDatasetToArchive(args, dataset, cur, uniqueID, "IMAGE", mt, indent="  ")
+    repID = AddReplicaToArchive(args, hostID, dirID, 0, keyID, args.file, cur, dsID, mt, filesize, indent="  ")
+    AddResolutionToArchive(args, repID, imgres[0], imgres[1], cur, indent="  ")
 
     if args.store or args.thumbnail is not None:
         imgsuffix = Path(args.file).suffix
         if args.store:
             print("Storing the image in the archive")
             resname = f"{imgres[0]}x{imgres[1]}{imgsuffix}"
-            AddFileToArchive(args, args.file, cur, repID, mt, resname, compress=False)
+            AddFileToArchive(args, args.file, cur, repID, mt, resname, compress=False, indent="  ")
 
         else:
-            print(f"Resize image to {args.thumbnail}")
+            print(f"  Make thumbnail image with resolution {args.thumbnail}")
             img.thumbnail(args.thumbnail)
             imgres = img.size
             resname = f"{imgres[0]}x{imgres[1]}{imgsuffix}"
@@ -387,14 +394,14 @@ def ProcessImage(
             mt = statres.st_mtime_ns
             filesize = statres.st_size
             thumbrepID = AddReplicaToArchive(
-                args, hostID, dirID, 0, keyID, join("thumbnails", args.file), cur, dsID, now, filesize
+                args, hostID, dirID, 0, keyID, join("thumbnails", args.file), cur, dsID, now, filesize, indent="  "
             )
-            AddFileToArchive(args, thumbfilename, cur, thumbrepID, now, resname, compress=False)
-            AddResolutionToArchive(args, thumbrepID, imgres[0], imgres[1], cur)
+            AddFileToArchive(args, thumbfilename, cur, thumbrepID, now, resname, compress=False, indent="  ")
+            AddResolutionToArchive(args, thumbrepID, imgres[0], imgres[1], cur, indent="  ")
             remove(thumbfilename)
 
 
-def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection, indent: str = ""):
     # Find dataset
     res = SQLExecute(cur, f'select rowid, fileformat from dataset where name = "{args.name}"')
     rows = res.fetchall()
@@ -409,25 +416,23 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
     rows = res.fetchall()
     if len(rows) == 0:
         raise Exception(f"Directory ID not found: {args.dirid} ")
-    
+
     hostID: int = rows[0][0]
     dir_name: str = rows[0][1]
-    tarname = ""
 
     if args.archiveid is None:
-        res = SQLExecute(cur, f"select rowid, system from archive where dirid = {args.dirid}")
+        res = SQLExecute(cur, f"select rowid from archive where dirid = {args.dirid}")
         rows = res.fetchall()
         if len(rows) == 0:
             raise Exception(f"Directory {dir_name} with ID {args.dirid} is not an archival storage directory")
         archiveID = rows[0][0]
     else:
-        res = SQLExecute(cur, f"select rowid, dirid, tarname, system from archive where rowid = {args.archiveid}")
+        res = SQLExecute(cur, f"select rowid, dirid from archive where rowid = {args.archiveid}")
         rows = res.fetchall()
         if len(rows) == 0:
             raise Exception(f"Archive ID {args.archiveid} is not found in the archive list")
         archiveID = args.archiveid
         dirID = rows[0][1]
-        tarname = rows[0][2]
         if dirID != args.dirid:
             raise Exception(f"Archive ID {args.archiveid} belongs to dir ID {dirID}, not to {args.dirid}")
 
@@ -494,7 +499,9 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
     if args.newpath:
         dsname = args.newpath
 
-    repID = AddReplicaToArchive(args, hostID, args.dirid, archiveID, keyID, dsname, cur, datasetid, mt, filesize)
+    repID = AddReplicaToArchive(
+        args, hostID, args.dirid, archiveID, keyID, dsname, cur, datasetid, mt, filesize, indent=indent
+    )
 
     # if replica has Resolution, copy that to new replica
     res = SQLExecute(cur, f"select x, y from resolution where replicaid = {orig_repID}")
@@ -502,7 +509,7 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
     if len(rows) > 0:
         x = rows[0][0]
         y = rows[0][1]
-        AddResolutionToArchive(args, repID, x, y, cur)
+        AddResolutionToArchive(args, repID, x, y, cur, indent=indent)
 
     # # if replica has Accuracy, copy that to new replica
     # res = SQLExecute(cur, f"select accuracy, norm, relative from accuracy where replicaid = {orig_repID}")
@@ -517,7 +524,7 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
     # otherwise, make a copy of all embedded files
     if args.move:
         SQLExecute(cur, f"update file set replicaid = {repID} where replicaid = {orig_repID}")
-        DeleteReplica(args, cur, con, orig_repID, False)
+        DeleteReplica(args, cur, con, orig_repID, False, indent=indent)
     else:
         res = SQLExecute(
             cur,
@@ -525,7 +532,7 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
             f"from file where replicaid = {orig_repID}",
         )
         files = res.fetchall()
-        print(f"Copying {len(files)} files from original replica to archived one")
+        print(f"{indent}Copying {len(files)} files from original replica to archived one")
         for f in files:
             SQLExecute(
                 cur,
@@ -536,6 +543,7 @@ def ArchiveDataset(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
             )
 
     SQLCommit(con)
+    return repID
 
 
 def AddTimeSeries(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
@@ -615,12 +623,12 @@ def GetHostName(args: argparse.Namespace):
     return longhost, shorthost
 
 
-def AddHostName(longHostName, shortHostName, cur: sqlite3.Cursor, default_protocol: str = "") -> int:
+def AddHostName(longHostName, shortHostName, cur: sqlite3.Cursor, default_protocol: str = "", indent: str = "") -> int:
     res = SQLExecute(cur, 'select rowid from host where hostname = "' + shortHostName + '"')
     row = res.fetchone()
     if row is not None:
         hostID = row[0]
-        print(f"Found host {shortHostName} in database, rowid = {hostID}")
+        print(f"{indent}Found host {shortHostName} in database, rowid = {hostID}")
     else:
         curHost = SQLExecute(
             cur,
@@ -628,11 +636,11 @@ def AddHostName(longHostName, shortHostName, cur: sqlite3.Cursor, default_protoc
             (shortHostName, longHostName, CURRENT_TIME, 0, default_protocol),
         )
         hostID = lastrowid_or_zero(curHost)
-        print(f"Inserted host {shortHostName} into database, rowid = {hostID}, longhostname = {longHostName}")
+        print(f"{indent}Inserted host {shortHostName} into database, rowid = {hostID}, longhostname = {longHostName}")
     return hostID
 
 
-def AddDirectory(hostID: int, path: str, cur: sqlite3.Cursor) -> int:
+def AddDirectory(hostID: int, path: str, cur: sqlite3.Cursor, indent: str = "") -> int:
     res = SQLExecute(
         cur,
         "select rowid from directory where hostid = " + str(hostID) + ' and name = "' + path + '"',
@@ -640,11 +648,11 @@ def AddDirectory(hostID: int, path: str, cur: sqlite3.Cursor) -> int:
     row = res.fetchone()
     if row is not None:
         dirID = row[0]
-        print(f"Found directory {path} with hostID {hostID} in database, rowid = {dirID}")
+        print(f"{indent}Found directory {path} with hostID {hostID} in database, rowid = {dirID}")
     else:
         curDirectory = SQLExecute(cur, "insert into directory values (?, ?, ?, ?)", (hostID, path, CURRENT_TIME, 0))
         dirID = lastrowid_or_zero(curDirectory)
-        print(f"Inserted directory {path} into database, rowid = {dirID}")
+        print(f"{indent}Inserted directory {path} into database, rowid = {dirID}")
     return dirID
 
 
@@ -666,14 +674,157 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
         return 0  # an invalid row id
 
 
+def ArchiveIdxReplica(
+    dsname: str,
+    dirID: int,
+    archiveID: int,
+    replica_entry: list[int],
+    entries: dict[str, list[int]],
+    cur: sqlite3.Cursor,
+    con: sqlite3.Connection,
+    indent: str = "",
+):
+
+    replicaID: int = replica_entry[0]
+    replica_hostID: int = replica_entry[1]
+    replica_dirID: int = replica_entry[2]
+    # replica_size: int = replica_entry[3]
+    print(f"{indent}Replica id = {replicaID} on host {replica_hostID}, dir {replica_dirID}")
+
+    # Archive replica
+    args = argparse.Namespace()
+    args.name = dsname
+    args.dirid = dirID
+    args.archiveid = archiveID
+    args.replica = replicaID
+    args.move = False
+    args.newpath = ""
+
+    archived_replicaID = ArchiveDataset(args, cur, con, indent=indent + "  ")
+    if archived_replicaID > 0:
+        for fname, info in entries.items():
+            # add replica and register offsets
+            offset = info[0]
+            data_offset = info[1]
+            size = info[2]
+            SQLExecute(
+                cur,
+                "insert into archiveidx (archiveid, replicaid, filename, offset, offset_data, size)"
+                " values  (?, ?, ?, ?, ?, ?) "
+                "on conflict (archiveid, replicaid, filename) do update set offset = ?, offset_data = ?, size = ?",
+                (archiveID, archived_replicaID, fname, offset, data_offset, size, offset, data_offset, size),
+            )
+        SQLCommit(con)
+
+
+def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite3.Connection, indent: str = ""):
+    try:
+        csvfile = open(tarfileidx, newline="")
+        reader = csv.reader(csvfile)
+    except FileNotFoundError:
+        raise Exception(f"File '{tarfileidx}' not found.")
+    except Exception as e:
+        raise Exception(f"Error occurred when opening '{tarfileidx}': {e}")
+
+    # Find archive dir
+    res = SQLExecute(cur, f"select dirid, tarname from archive where rowid = {archiveID}")
+    rows = res.fetchall()
+    if len(rows) == 0:
+        raise Exception(f"Archive ID not found: {archiveID}")
+
+    dirID: int = rows[0][0]
+    tarname: str = rows[0][1]
+    if not tarname:
+        raise Exception(f"Directory.Archive {dirID}.{archiveID} is not a TAR archive.")
+
+    line_number = 0
+    readnext = True
+    while True:
+        if readnext:
+            row = next(reader, None)
+        else:
+            readnext = True
+        if row is None:
+            break
+
+        # print(f"{line_number}: {row}")
+        if len(row) != 5:
+            print(
+                f"{indent}  Warning: Line {line_number} in {tarfileidx} does not have 5 elements. "
+                f"Found {len(row)}. Skip."
+            )
+            continue
+        entrytype = int(row[0].strip())
+        if entrytype != 0 and entrytype != 5:  # process only Regular and Directory entries
+            continue
+        offset = int(row[1].strip())
+        data_offset = int(row[2].strip())
+        size = int(row[3].strip())
+        dsname = row[4].strip()
+
+        # find dataset
+        res = SQLExecute(cur, f"select rowid, fileformat from dataset where name = '{dsname}'")
+        rows = res.fetchall()
+        if len(rows) == 0:
+            print(f"{indent}Dataset       {dsname} is not found in the datasets. Skip")
+            continue
+        dsID: int = rows[0][0]
+        format: str = rows[0][1]
+        print(f"{indent}Dataset {dsID:<5} {dsname}")
+
+        # find (first non-deleted) replica of dataset
+        res = SQLExecute(
+            cur, f"select rowid, hostid, dirid, size from replica where " f"name = '{dsname}' and deltime = 0"
+        )
+        replica_row = res.fetchone()
+        if replica_row is None:
+            print(f"{indent}  No suitable replica of {dsname} found. Skip")
+            continue
+
+        entries: dict = {"": [offset, data_offset, size]}
+        if entrytype == TARTYPES["reg"]:
+            replica_size: int = replica_row[3]
+            if size == replica_size:
+                ArchiveIdxReplica(dsname, dirID, archiveID, replica_row, entries, cur, con, indent=indent + "  ")
+            else:
+                print(
+                    f"{indent}  The replica size ({replica_size}) does not match the size "
+                    f"in the TAR file ({size}). Skip"
+                )
+
+        elif entrytype == TARTYPES["dir"] and format == "ADIOS":
+            # it's a directory for ADIOS datasets, process its entries
+            while True:
+                row = next(reader, None)
+                if row is None:
+                    break
+                entrytype = int(row[0].strip())
+                offset = int(row[1].strip())
+                data_offset = int(row[2].strip())
+                size = int(row[3].strip())
+                entryname: str = row[4].strip()
+                if not entryname.startswith(dsname):
+                    break
+                if entrytype == TARTYPES["reg"]:
+                    # a file inside the ADIOS dataset
+                    fname = entryname[len(dsname) + 1 :]
+                    entries[fname] = [offset, data_offset, size]
+            # we have a row unprocessed or None, skip reading at the beginning of the loop
+            readnext = False
+            ArchiveIdxReplica(dsname, dirID, archiveID, replica_row, entries, cur, con, indent=indent + "  ")
+    csvfile.close()
+
+
 def AddArchivalStorage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     protocol = args.system.lower()
-    if protocol != "https" and protocol != "http" and protocol != "ftp":
+    if protocol != "https" and protocol != "http" and protocol != "ftp" and protocol != "s3":
         protocol = ""
 
-    hostID = AddHostName(args.longhostname, args.host, cur, protocol)
-    dirID = AddDirectory(hostID, args.directory, cur)
-    print(f"Note the archive system {args.system} for directory {dirID}")
+    print(f"Add archival storage host = {args.host}, directory = {args.directory}, archive system {args.system}")
+    print(f"                     tarfile = {args.tarfilename} taridx = {args.tarfileidx}")
+
+    hostID = AddHostName(args.longhostname, args.host, cur, protocol, indent="  ")
+    dirID = AddDirectory(hostID, args.directory, cur, indent="  ")
     notes = None
     if args.note:
         try:
@@ -687,13 +838,27 @@ def AddArchivalStorage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlit
         tarname = args.tarfilename
         print(f"  Adding a TAR file: {tarname}")
 
-    SQLExecute(
+    res = SQLExecute(
         cur,
-        "insert into archive (dirid, tarname, system, notes) values  (?, ?, ?, ?) "
-        "on conflict (dirid, tarname) do update set system = ?",
-        (dirID, tarname, args.system, notes, args.system),
+        "select rowid from archive where dirid = " + str(hostID) + ' and tarname = "' + tarname + '"',
     )
-    SQLCommit(con)
+    row = res.fetchone()
+    if row is not None:
+        archiveID = row[0]
+        print(f"  Found archive already in the database, rowid = {archiveID}")
+    else:
+        curArchive = SQLExecute(
+            cur,
+            "insert into archive (dirid, tarname, system, notes) values  (?, ?, ?, ?) ",
+            (dirID, tarname, args.system, notes),
+        )
+        archiveID = lastrowid_or_zero(curArchive)
+        SQLCommit(con)
+
+    if archiveID == 0:
+        print("  ERROR: Could not insert information into table 'archive' for some reason")
+    elif args.tarfileidx:
+        ArchiveIdx(args.tarfileidx, archiveID, cur, con, indent="  ")
 
 
 def Update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
@@ -775,7 +940,8 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
     SQLExecute(
         cur,
         "create table archiveidx"
-        + "(archiveid INT, replicaid INT, offset INT, size INT, PRIMARY KEY (archiveid, replicaid))",
+        + "(archiveid INT, replicaid INT, filename TEXT, offset INT, offset_data INT, size INT"
+        + ", PRIMARY KEY (archiveid, replicaid, filename))",
     )
     SQLCommit(con)
     cur.close()
@@ -784,12 +950,14 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
         sleep(0.1)
 
 
-def DeleteDatasetIfEmpty(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection, datasetid: int):
-    print(f"Check if dataset {datasetid} still has replicas")
+def DeleteDatasetIfEmpty(
+    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection, datasetid: int, indent: str
+):
+    print(f"{indent}Check if dataset {datasetid} still has replicas")
     res = SQLExecute(cur, "select rowid from replica " + f" where datasetid = {datasetid} and deltime = 0")
     replicas = res.fetchall()
     if len(replicas) == 0:
-        print("    Dataset without replicas found. Deleting.")
+        print("{indent}  Dataset without replicas found. Deleting.")
         SQLExecute(cur, f"update dataset set deltime = {CURRENT_TIME} " + f"where rowid = {datasetid}")
 
 
@@ -799,8 +967,9 @@ def DeleteReplica(
     con: sqlite3.Connection,
     repid: int,
     delete_empty_dataset: bool,
+    indent: str = "",
 ):
-    print(f"Delete replica with id {repid}")
+    print(f"{indent}Delete replica with id {repid}")
     res = SQLExecute(cur, "select datasetid, hostid, dirid from replica " + f"where rowid = {repid}")
     replicas = res.fetchall()
     datasetid = 0
@@ -809,7 +978,7 @@ def DeleteReplica(
         SQLExecute(cur, f"update replica set deltime = {CURRENT_TIME} " + f"where rowid = {repid}")
     if delete_empty_dataset:
         SQLExecute(cur, f"delete from file where replicaid = {repid}")
-        DeleteDatasetIfEmpty(args, cur, con, datasetid)
+        DeleteDatasetIfEmpty(args, cur, con, datasetid, indent=indent + "  ")
 
 
 def DeleteDataset(
@@ -883,7 +1052,7 @@ def InfoDataset(
     replicas = res2.fetchall()
     for rep in replicas:
         replicaid = rep[0]
-        hostid = rep[1]
+        # hostid = rep[1]
         dirid = rep[2]
         archiveid = rep[3]
         name = rep[4]
@@ -1100,7 +1269,7 @@ def main(args=None, prog=None):
     connected = False
 
     while parser.parse_next_command():
-        print("=============================")
+        print("=" * 70)
         # print(parser.args)
         # print("--------------------------")
         if parser.args.command == "delete" and parser.args.campaign is True:
@@ -1142,6 +1311,8 @@ def main(args=None, prog=None):
             ArchiveDataset(parser.args, cur, con)
         elif parser.args.command == "time-series":
             AddTimeSeries(parser.args, cur, con)
+        elif parser.args.command == "taridx":
+            CreateTarIndex(parser.args.tarfile, parser.args.idxfile)
         else:
             print("This should not happen. " f"Unknown command accepted by argparser: {parser.args.command}")
 
