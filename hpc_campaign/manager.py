@@ -678,19 +678,12 @@ def ArchiveIdxReplica(
     dsname: str,
     dirID: int,
     archiveID: int,
-    replica_entry: list[int],
+    replicaID: int,
     entries: dict[str, list[int]],
     cur: sqlite3.Cursor,
     con: sqlite3.Connection,
     indent: str = "",
 ):
-
-    replicaID: int = replica_entry[0]
-    replica_hostID: int = replica_entry[1]
-    replica_dirID: int = replica_entry[2]
-    # replica_size: int = replica_entry[3]
-    print(f"{indent}Replica id = {replicaID} on host {replica_hostID}, dir {replica_dirID}")
-
     # Archive replica
     args = argparse.Namespace()
     args.name = dsname
@@ -742,6 +735,8 @@ def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite
     while True:
         if readnext:
             row = next(reader, None)
+            if row is not None:
+                line_number += 1
         else:
             readnext = True
         if row is None:
@@ -760,32 +755,36 @@ def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite
         offset = int(row[1].strip())
         data_offset = int(row[2].strip())
         size = int(row[3].strip())
-        dsname = row[4].strip()
+        archivename = row[4].strip()
 
-        # find dataset
-        res = SQLExecute(cur, f"select rowid, fileformat from dataset where name = '{dsname}'")
-        rows = res.fetchall()
-        if len(rows) == 0:
-            print(f"{indent}Dataset       {dsname} is not found in the datasets. Skip")
-            continue
-        dsID: int = rows[0][0]
-        format: str = rows[0][1]
-        print(f"{indent}Dataset {dsID:<5} {dsname}")
-
-        # find (first non-deleted) replica of dataset
+        # find (first non-deleted) replica of dataset that matches the name
         res = SQLExecute(
-            cur, f"select rowid, hostid, dirid, size from replica where " f"name = '{dsname}' and deltime = 0"
+            cur,
+            f"select rowid, datasetid, hostid, dirid, size from replica where "
+            f"name = '{archivename}' and deltime = 0",
         )
         replica_row = res.fetchone()
         if replica_row is None:
-            print(f"{indent}  No suitable replica of {dsname} found. Skip")
+            print(f"{indent}  No suitable replica of {archivename} found. Skip")
             continue
+        replicaID: int = replica_row[0]
+        replica_datasetID: int = replica_row[1]
+        replica_hostID: int = replica_row[2]
+        replica_dirID: int = replica_row[3]
+        replica_size: int = replica_row[4]
+        print(f"{indent}Replica id = {replicaID} on host {replica_hostID}, dir {replica_dirID}")
+
+        # find dataset of this replica
+        res = SQLExecute(cur, f"select name, fileformat from dataset where rowid = '{replica_datasetID}'")
+        dsrow = res.fetchone()
+        dsname = dsrow[0]
+        format: str = dsrow[1]
+        print(f"{indent}  Dataset {replica_datasetID:<5} {dsname}")
 
         entries: dict = {"": [offset, data_offset, size]}
         if entrytype == TARTYPES["reg"]:
-            replica_size: int = replica_row[3]
             if size == replica_size:
-                ArchiveIdxReplica(dsname, dirID, archiveID, replica_row, entries, cur, con, indent=indent + "  ")
+                ArchiveIdxReplica(dsname, dirID, archiveID, replicaID, entries, cur, con, indent=indent + "  ")
             else:
                 print(
                     f"{indent}  The replica size ({replica_size}) does not match the size "
@@ -798,20 +797,21 @@ def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite
                 row = next(reader, None)
                 if row is None:
                     break
+                line_number += 1
                 entrytype = int(row[0].strip())
                 offset = int(row[1].strip())
                 data_offset = int(row[2].strip())
                 size = int(row[3].strip())
                 entryname: str = row[4].strip()
-                if not entryname.startswith(dsname):
+                if not entryname.startswith(archivename):
                     break
                 if entrytype == TARTYPES["reg"]:
                     # a file inside the ADIOS dataset
-                    fname = entryname[len(dsname) + 1 :]
+                    fname = entryname[len(archivename) + 1 :]
                     entries[fname] = [offset, data_offset, size]
             # we have a row unprocessed or None, skip reading at the beginning of the loop
             readnext = False
-            ArchiveIdxReplica(dsname, dirID, archiveID, replica_row, entries, cur, con, indent=indent + "  ")
+            ArchiveIdxReplica(dsname, dirID, archiveID, replicaID, entries, cur, con, indent=indent + "  ")
     csvfile.close()
 
 
@@ -1255,6 +1255,7 @@ def CampaignInfo(filename):
     import io
     import sys
     import re
+
     output = io.StringIO()
     sys.stdout = output
     main(
@@ -1263,7 +1264,9 @@ def CampaignInfo(filename):
     )
     output_string = output.getvalue()
     sys.stdout = sys.__stdout__
-    pattern = re.compile(r"^\s*(?P<uuid>[0-9a-f]{32})\s+(?P<type>ADIOS|HDF5|TEXT|IMAGE)\s+.*?\s+.*?\s+.*?\s+(?P<path>.*)", re.MULTILINE)
+    pattern = re.compile(
+        r"^\s*(?P<uuid>[0-9a-f]{32})\s+(?P<type>ADIOS|HDF5|TEXT|IMAGE)\s+.*?\s+.*?\s+.*?\s+(?P<path>.*)", re.MULTILINE
+    )
     return [m.groupdict() for m in pattern.finditer(output_string)]
 
 
