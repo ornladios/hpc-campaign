@@ -16,7 +16,8 @@ __accepted_commands__ = [
     "add-archival-storage",
     "archived",
     "time-series",
-    "taridx"
+    "taridx",
+    "upgrade"
 ]
 __accepted_commands_str__ = " | ".join(__accepted_commands__)
 
@@ -362,6 +363,18 @@ in the archive and register their offsets and sizes in the TAR file.
         parsers["taridx"] = parser_taridx
         parser_taridx.add_argument("tarfile", help="Name of the TAR file", type=str)
         parser_taridx.add_argument("idxfile", nargs="?", help="Optional name of the index file", type=str)
+
+        # parser for the "upgrade" command
+        parser_upgrade = argparse.ArgumentParser(
+            prog=f"{prog} <archive>  upgrade",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Upgrade an archive's format from its current version to the next available version.
+New columns in the database will be filled with empty/null values.
+One may need to run upgrade several times to reach the newest format.
+""",
+        )
+        parsers["upgrade"] = parser_upgrade
         return parsers
 
     def remove_prev_args(self, command: str, args: argparse.Namespace):
