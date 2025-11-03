@@ -30,6 +30,7 @@ from .utils import (
     CreateTarIndex,
     TARTYPES,
 )
+from .upgrade import UpgradeACA
 from .hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
 from .manager_args import ArgParser
 
@@ -710,14 +711,14 @@ def ArchiveIdxReplica(
         SQLCommit(con)
 
 
-def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite3.Connection, indent: str = ""):
+def ArchiveIdx(args: argparse.Namespace, archiveID: int, cur: sqlite3.Cursor, con: sqlite3.Connection, indent: str = ""):
     try:
-        csvfile = open(tarfileidx, newline="")
+        csvfile = open(args.tarfileidx, newline="")
         reader = csv.reader(csvfile)
     except FileNotFoundError:
-        raise Exception(f"File '{tarfileidx}' not found.")
+        raise Exception(f"File '{args.tarfileidx}' not found.")
     except Exception as e:
-        raise Exception(f"Error occurred when opening '{tarfileidx}': {e}")
+        raise Exception(f"Error occurred when opening '{args.tarfileidx}': {e}")
 
     # Find archive dir
     res = SQLExecute(cur, f"select dirid, tarname from archive where rowid = {archiveID}")
@@ -745,7 +746,7 @@ def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite
         # print(f"{line_number}: {row}")
         if len(row) != 5:
             print(
-                f"{indent}  Warning: Line {line_number} in {tarfileidx} does not have 5 elements. "
+                f"{indent}  Warning: Line {line_number} in {args.tarfileidx} does not have 5 elements. "
                 f"Found {len(row)}. Skip."
             )
             continue
@@ -765,7 +766,8 @@ def ArchiveIdx(tarfileidx: str, archiveID: int, cur: sqlite3.Cursor, con: sqlite
         )
         replica_row = res.fetchone()
         if replica_row is None:
-            print(f"{indent}  No suitable replica of {archivename} found. Skip")
+            if args.verbose:
+                print(f"{indent}  No suitable replica of {archivename} found. Skip")
             continue
         replicaID: int = replica_row[0]
         replica_datasetID: int = replica_row[1]
@@ -858,7 +860,7 @@ def AddArchivalStorage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlit
     if archiveID == 0:
         print("  ERROR: Could not insert information into table 'archive' for some reason")
     elif args.tarfileidx:
-        ArchiveIdx(args.tarfileidx, archiveID, cur, con, indent="  ")
+        ArchiveIdx(args, archiveID, cur, con, indent="  ")
 
 
 def Update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
@@ -1332,6 +1334,8 @@ def main(args=None, prog=None):
             AddTimeSeries(parser.args, cur, con)
         elif parser.args.command == "taridx":
             CreateTarIndex(parser.args.tarfile, parser.args.idxfile)
+        elif parser.args.command == "upgrade":
+            UpgradeACA(parser.args, cur, con)
         else:
             print("This should not happen. " f"Unknown command accepted by argparser: {parser.args.command}")
 
