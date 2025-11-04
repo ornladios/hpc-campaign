@@ -16,7 +16,6 @@ __accepted_commands__ = [
     "add-archival-storage",
     "archived",
     "time-series",
-    "taridx",
     "upgrade"
 ]
 __accepted_commands_str__ = " | ".join(__accepted_commands__)
@@ -350,20 +349,6 @@ datasets to the list of existing datasets, unless --replace is given.
             "--remove", help="Remove the series definition (not the datasets)", action="store_true"
         )
 
-        # parser for the "taridx" command
-        parser_taridx = argparse.ArgumentParser(
-            prog=f"{prog} <archive>  taridx",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            description="""
-Create an index file from a TAR file. It can be used in the
-'add-archival-storage' command to make automatic replicas of all datasets
-in the archive and register their offsets and sizes in the TAR file.
-""",
-        )
-        parsers["taridx"] = parser_taridx
-        parser_taridx.add_argument("tarfile", help="Name of the TAR file", type=str)
-        parser_taridx.add_argument("idxfile", nargs="?", help="Optional name of the index file", type=str)
-
         # parser for the "upgrade" command
         parser_upgrade = argparse.ArgumentParser(
             prog=f"{prog} <archive>  upgrade",
@@ -418,5 +403,4 @@ One may need to run upgrade several times to reach the newest format.
             del args.dataset
             del args.replace
             del args.remove
-        elif command == "taridx":
-            del args.tarfile
+
