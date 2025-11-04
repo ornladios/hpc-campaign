@@ -27,10 +27,9 @@ from .utils import (
     SQLErrorList,
     get_folder_size,
     sizeof_fmt,
-    CreateTarIndex,
-    TARTYPES,
 )
 from .upgrade import UpgradeACA
+from .taridx import TARTYPES
 from .hdf5_metadata import copy_hdf5_file_without_data, IsHDF5Dataset
 from .manager_args import ArgParser
 
@@ -1332,8 +1331,6 @@ def main(args=None, prog=None):
             ArchiveDataset(parser.args, cur, con)
         elif parser.args.command == "time-series":
             AddTimeSeries(parser.args, cur, con)
-        elif parser.args.command == "taridx":
-            CreateTarIndex(parser.args.tarfile, parser.args.idxfile)
         elif parser.args.command == "upgrade":
             UpgradeACA(parser.args, cur, con)
         else:

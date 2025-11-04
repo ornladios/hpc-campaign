@@ -20,6 +20,7 @@ def ArgParse():
             "hdf5_metadata",
             "list",
             "manager",
+            "taridx"
         ]
     )
 
