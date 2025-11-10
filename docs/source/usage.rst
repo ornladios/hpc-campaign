@@ -1,17 +1,25 @@
 Usage
 =====
 
+The Python command `hpc_campaign` is the entry point to all commands:
+
+* **connector** Launches a service that can make SSH tunnels on demand to remote hosts
+* **genkey**  Generates/validates keys used for encrypting datasets in the campaign archive
+* **list**  Lists the available campaign archives, all or those that matches an expression
+* **manager** The main command with many sub-commands to create/delete/update a campaign archive
+* **taridx**  Creates an index from a TAR file that can be used to point to replicas on an archival storage
+* **cache** List/clear the content of the local cache
 
 Creating a Campaign archive file
 --------------------------------
 
 The `hpc_campaign manager` command is the primary tool for creating, modifying, and viewing campaign archive files (`.aca`). It enables full lifecycle management for datasets, replicas, and archival storage locations.
 
-A campaign archive name without the required `.aca` extension will be automatically corrected. Relative paths for archive names are resolved using the `campaignstorepath` defined in `~/.config/hpc-campaign/config.yaml` unless otherwise specified. Multiple commands can be chained in a single execution.
+A campaign archive name without the required `.aca` extension will be automatically corrected. Relative paths for archive names are resolved using the `campaignstorepath` defined in `~/.config/hpc-campaign/config.yaml` unless otherwise specified. Multiple sub-commands can be chained in a single execution.
 
 .. note::
 
-  Updates to moving data for other location is not supported yet
+  Updates to moving data to other location is only properly supported in version 0.6 if the other location is an archival location (see `hpc_campaign manager <archive> archived --move` command). Otherwise one has to add (to the campaign archive) the dataset in the new location manually and delete the old replica (from the campaign archive).
 
 
 **Global Usage and Options**
@@ -20,20 +28,34 @@ The manager command is invoked using the following general format:
 
 .. code-block:: bash
 
-  usage: hpc_campaign manager <archive> [command] [options]
+  usage: hpc_campaign manager <archive> [sub-command] [options]
 
-The [command] argument must be one of the following: create | delete | info | dataset | text | image | add-archival-storage | archived | time-series. In addition, the following options are available globally for the manager command to overwrite the default options:
+The following options are available globally for the manager command to overwrite the default options:
 
 * `--campaign_store, -s <CAMPAIGN_STORE>` specifies the path to the local campaign store used by the campaign manager instead of the default path set in `~/.config/hpc-campaign/config.yaml`
 * `--hostname, -n <HOSTNAME>` provides the host name, which must be unique for hosts within a campaign used by the campaign manager instead of the default hostname set in `~/.config/hpc-campaign/config.yaml`
 * `--keyfile, -k <KEYFILE>` specifies the key file used to encrypt metadata.
-* `--s3_bucket <S3_BUCKET>` specifies the target bucket on an S3 server for remote operations.
-* `--s3_datetime <S3_DATETIME>` specifies the datetime of data on the S3 server, expected in the format: ``'YYYY-MM-DD HH:MM:SS -HHMM'`` (e.g., ``'2024-04-19 10:20:15 -0400'``).
 
 
-**Commands**
+..
+  * `--s3_bucket <S3_BUCKET>` specifies the target bucket on an S3 server for remote operations.
+  * `--s3_datetime <S3_DATETIME>` specifies the datetime of data on the S3 server, expected in the format: ``'YYYY-MM-DD HH:MM:SS -HHMM'`` (e.g., ``'2024-04-19 10:20:15 -0400'``).
 
-The [command] argument can take one of the following values: create | delete | info | dataset | text | image | add-archival-storage | archived | time-series.
+
+**Manager sub-commands**
+
+The [sub-command] argument can take one of the following values
+
+* **create** First command to create a new campaign archive
+* **delete** Delete dataset/replica from a campaign archive, or the entire archive
+* **info** List the content of a campaign archive
+* **dataset** Add ADIOS2 or HDF5 files
+* **text** Add text files, embedded or just reference to remote file
+* **image** Add images, embedded or remote optionally with an embedded thumbnail image
+* **add-archival-storage** Register an archival location (tape system, https, s3)
+* **archived** Create a replica of a dataset pointing to an archival storage location
+* **time-series** Organizing a series of individual datasets as a single entry with extra dimension for time
+* **upgrade** For upgrading an older ACA format to newer format
 
 **1. create**
 
@@ -41,7 +63,7 @@ Creates a new campaign archive file stored in the specified or default path to t
 
 .. code-block:: bash
 
-  hpc_campaign manager test_campaign_001 create
+  hpc_campaign manager demoproject/test_campaign_001 create
 
 
 **2. delete**
@@ -51,7 +73,7 @@ Example usage:
 
 .. code-block:: bash
 
-  hpc_campaign manager test_campaign_001 delete [options]
+  hpc_campaign manager demoproject/test_campaign_001 delete [options]
 
 The optional options specifies what will be deleted:
 
@@ -68,7 +90,7 @@ Example usage:
 
 .. code-block:: bash
 
-  hpc_campaign manager test_campaign_001 info [options]
+  hpc_campaign manager demoproject/test_campaign_001 info [options]
 
 The optional options allow listing replicas, entries that have been deleted and checksums. A complete list of options can be found in the help menu (`-h` option).
 
@@ -85,10 +107,10 @@ Example usage:
 
 .. code-block:: bash
 
-  hpc_campaign manager test_campaign_001 dataset run_001.bp run_002.h5
+  hpc_campaign manager demoproject/test_campaign_001 dataset run_001.bp run_002.h5
 
 
-Additional option (`--name <NAME>`) can specify the representation name for the dataset in the campaign hierarchy. The same option can be applied to the text and image commands.
+Additional option (`--name <NAME>`) can specify the representation name for one dataset in the campaign hierarchy. The same option can be applied to the text and image sub-commands.
 
 
 **5. text/image**
@@ -103,8 +125,8 @@ Example usage:
 
 .. code-block:: bash
 
-  hpc_campaign manager test_campaign_001 text input.json
-  hpc_campaign manager test_campaign_001 image 2dslice.jpg
+  hpc_campaign manager demoproject/test_campaign_001 text input.json --store
+  hpc_campaign manager demoproject/test_campaign_001 image 2dslice.jpg --thumbnail
 
 
 Additional options for images include:
@@ -116,13 +138,60 @@ Additional options for images include:
 
 Records an archival storage location (e.g., tape system) to the list of known storage locations for the campaign.
 
+.. code-block:: bash
+
+  hpc_campaign manager demoproject/test_campaign_001 add-archival-storage \
+    --longhostname users.nccs.gov https USERS.NCCS ~pnorbert/campaign-test/gray-scott-ensemble
+
+This adds a second host/directory location into the campaign archive:
+
+.. code-block:: bash
+
+  USERS.NCCS   longhostname = users.nccs.gov
+     2. ~pnorbert/campaign-test/gray-scott-ensemble  - Archive: https
+
+Replicas of datasets then can be created (in the campaign file) by the `archived` sub-command. Note that hpc-campaign does not copy/move files on disk, someone else has to do that. These commands only record the action into the campaign archive file. 
+
+If we put a TAR file there instead of individual files, we can just point to that, and use `archived` one by one for each dataset. However, it is easier and provides more information, if we create an index file with the `taridx` command, then let the manager to create (i.e. record) a new replica for every dataset/replica already in the campaign archive that is also in the tar index. 
+
 **7. archived**
 
-Indicates that a dataset or replica has been copied or moved to an archival storage location. A new replica entry is created pointing to the archival host/directory.
+Indicates that a (replica of a) dataset has been manually copied or moved to an archival storage location. A new replica entry is created pointing to the archival host/directory. This sub-command only works if the metadata of the dataset is still included in the ACA file, so that it can be copied for the new replica. Therefore, always execute this sub-command before deleting the original replica from the ACA file. The two operations can be combined using the `--move` option. This sub-command requires the use of `add-archival-storage` sub-command that adds the location (host/directory/tar file) to the campaign first. If many files are added to the archival location in a TAR file, it is better to use the `taridx` command to create an index of the tar file and then use that in the `add-archival-storage` operation to automatically create replicas of all datasets involved. However, this individual sub-command allows for placing the replica in a different relative path string than the original, while the tar indexing requires them to be placed exactly with the same relative paths. 
 
 **8. time-series**
 
 Organizes a sequence of datasets into a single named time-series. Subsequent calls with the same name will add datasets to the list, unless --replace is used.
+
+.. code-block:: bash
+
+  hpc_campaign manager test.aca dataset series/array00.bp --name array00
+  hpc_campaign manager test.aca dataset series/array01.bp --name array01
+  hpc_campaign manager test.aca dataset series/array02.bp --name array02
+  hpc_campaign manager test.aca dataset series/array03.bp --name array03
+  hpc_campaign manager test.aca time-series array array00 array01 array02
+  hpc_campaign manager test.aca time-series array array03
+  hpc_campaign manager test.aca info
+
+  ...
+  Time-series and their datasets:
+  array
+    89635fe22f85314ebfc04c902bca42f3  ADIOS  Jun  9 08:49   array00
+    cea0302ea4ce39ccabca6b40bbeb09d1  ADIOS  Jun  9 08:49   array01
+    fad5daf925e13f938c2649d81a1821f2  ADIOS  Jun  9 08:49   array02
+    180b6d3123a832d786e1d0ff99c7e303  ADIOS  Jun  9 08:49   array03
+
+  Other Datasets:
+  ...
+
+  # ADIOS tools will present them as a single dataset with multiple steps
+  bpls -l  test.aca array/*
+    int64_t  array/Nx                          4*scalar = 10 / 10
+    double   array/bpArray                     4*{10} = 0 / 9
+    double   array/time                        4*scalar = 0 / 0
+
+**9. upgrade**
+
+An ADIOS2 release will only read the latest ACA version and throw errors if an older ACA files is opened. The `upgrade` sub-command will modify the old ACA to jump to the next version. It may be called multiple times to get to the current version. This is an in-place conversion. If an error occurs during conversion, all changes are cancelled, leaving the original file intact. 
 
 **Example creating an archive campaign file**
 
@@ -133,7 +202,8 @@ In this example we will create an archive campaign file with:
 - the images generated by a visualization code on the simulation data
 
 Configuration:
-- the `campaignpath` in `~/.config/hpc-campaign/config.yaml` is set to `/path/to/adios-campaign-store/demoproject`
+- the `campaignpath` in `~/.config/hpc-campaign/config.yaml` is set to `/path/to/campaign-store`
+- the path `/path/to/campaign-store/demoproject` is writable directory 
 - the runs are made on a machine named OLCF in the Campaign hostname in `~/.config/hpc-campaign/config.yaml`
 - all the files above are generated and stored in `${pwd}/runs`
 

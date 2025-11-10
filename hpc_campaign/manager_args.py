@@ -165,12 +165,12 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
         parser.add_argument("--campaign_store", "-s", help="Path to local campaign store", default=None)
         parser.add_argument("--hostname", "-n", help="Host name unique for hosts in a campaign")
         parser.add_argument("--keyfile", "-k", help="Key file to encrypt metadata")
-        parser.add_argument("--s3_bucket", help="Bucket on S3 server", default=None)
-        parser.add_argument(
-            "--s3_datetime",
-            help="Datetime of data on S3 server in " "'2024-04-19 10:20:15 -0400' format",
-            default=None,
-        )
+        # parser.add_argument("--s3_bucket", help="Bucket on S3 server", default=None)
+        # parser.add_argument(
+        #     "--s3_datetime",
+        #     help="Datetime of data on S3 server in " "'2024-04-19 10:20:15 -0400' format",
+        #     default=None,
+        # )
         parser.add_argument("archive", help="Campaign archive name or path, with .aca or without", default=None)
         parser.add_argument("command", nargs="?", help=__accepted_commands_str__, default=None)
 

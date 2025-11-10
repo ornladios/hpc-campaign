@@ -8,12 +8,12 @@ Prerequisits
 
 This toolkit requires the following Python packages.
 
-- paramiko, a networking package to run a local service the I/O library can talk to to establish a remote connection
-- pyyaml, parsing yaml configuration files
-- PyNaCl for encoding metadata with keys
-- pillow for processing images
-- h5py for adding HDF5 files
-- redis for *hpc_campaign cache* to list local cache information (Redis is used by ADIOS2 for caching)
+- **paramiko**, a networking package to run a local service the I/O library can talk to to establish a remote connection
+- **pyyaml**, parsing yaml configuration files
+- **PyNaCl** for encoding metadata with keys
+- **pillow** for processing images
+- **h5py** for adding HDF5 files
+- **redis** for *hpc_campaign cache* to list local cache information (Redis is used by ADIOS2 for caching)
 
 Besides these packages, Python needs support for Tcl/Tk (python3-tk), so that *hpc_campaign connector* can pop up a dialog for password entries.
 
@@ -45,6 +45,11 @@ or can be accessed without installation by setting PYTHONPATH
     $ export PYTHONPATH=${PWD}:$PYTHONPATH
     $ python3 -m hpc_campaign list
 
+
+Versions
+--------
+
+ACA 0.6 version is compatible with ADIOS 2.11.0
 
 Setup 
 -----
@@ -95,7 +100,7 @@ Use `~/.config/hpc-campaign/config.yaml` to specify these options.
             serverpath: ~/dtn/sw/adios2/bin/adios2_remote_server -background -report_port_selection -v -v -l /ccs/home/user007/dtn/log.adios2_remote_server -t 16
             verbose: 1
 
-        NERSC:
+    NERSC:
         dtn-ssh:
             protocol: ssh
             host: dtn.nersc.gov
