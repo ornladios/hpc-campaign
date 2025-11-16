@@ -21,6 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install poetry
+        poetry lock
         poetry install
 
     - name: Run ruff
