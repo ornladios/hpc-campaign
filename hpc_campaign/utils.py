@@ -4,6 +4,7 @@ from os import walk
 from os.path import join, getsize
 import sqlite3
 
+
 def timestamp_to_datetime(timestamp: int) -> datetime:
     digits = len(str(int(timestamp)))
     t = float(timestamp)
@@ -76,13 +77,17 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     try:
         res = cur.execute(cmd, parameters)
     except sqlite3.OperationalError as e:
-        print(f"SQL execute Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+        print(
+            f"SQL execute Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+        )
         SQLErrorList.append(e)
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
         except sqlite3.Error as e:
-            print(f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+            print(
+                f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+            )
             raise e
         else:
             print("SQL re-execute succeeded")
@@ -98,14 +103,18 @@ def SQLCommit(con: sqlite3.Connection):
     try:
         con.commit()
     except sqlite3.OperationalError as e:
-        print(f"SQL commit Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+        print(
+            f"SQL commit Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+        )
         SQLErrorList.append(e)
         if e.sqlite_errorcode == sqlite3.SQLITE_IOERR_DELETE:
             sleep(1.0)
             try:
                 con.commit()
             except sqlite3.Error as e:
-                print(f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+                print(
+                    f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+                )
                 raise e
             else:
                 print("SQL recommit succeeded")
