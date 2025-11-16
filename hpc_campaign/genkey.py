@@ -13,8 +13,16 @@ def setup_args(args=None, prog=None):
         choices=["generate", "verify", "info"],
     )
     parser.add_argument("path", help="path of keyfile")
-    parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
-    parser.add_argument("--password", "-p", help="Protect with password", action="store_true", default=False)
+    parser.add_argument(
+        "--verbose", "-v", help="More verbosity", action="count", default=0
+    )
+    parser.add_argument(
+        "--password",
+        "-p",
+        help="Protect with password",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args(args=args)
 
     if args.verbose > 0:
@@ -27,7 +35,10 @@ def setup_args(args=None, prog=None):
 
 def check_path_for_creation(path: str):
     if exists(path):
-        print(f"The file {path} already exist. " "Do not destroy a key that is in use of existing campaign archives. ")
+        print(
+            f"The file {path} already exist. "
+            "Do not destroy a key that is in use of existing campaign archives. "
+        )
         while True:
             print("Do you want to overwrite Y/N? ", end="")
             answer = input()

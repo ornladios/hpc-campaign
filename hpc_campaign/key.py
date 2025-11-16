@@ -7,6 +7,7 @@ import yaml
 from datetime import datetime, UTC
 from getpass import getpass
 from os.path import exists
+from typing import Optional
 
 
 class Key:
@@ -18,9 +19,9 @@ class Key:
         self.key = None
         self.date = datetime.now(UTC)
         self.note = ""
-        self.salt = None
+        self.salt = Optional[bytes]
 
-    def generate(self, note: str, pwd: bytes = None):
+    def generate(self, note: str, pwd: Optional[bytes] = None):
         self.date = datetime.now(UTC)
         self.note = note
 
@@ -88,7 +89,7 @@ class Key:
         else:
             self.salt = None
 
-    def get_decrypted_key(self, pwd: bytes = None) -> bytes:
+    def get_decrypted_key(self, pwd: Optional[bytes] = None) -> bytes:
         if self.salt:
             if not pwd:
                 pwd = bytes(getpass("Password: "), "utf-8")

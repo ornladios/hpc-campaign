@@ -4,7 +4,7 @@ import argparse
 import glob
 import re
 import fnmatch
-from os.path import exists, isdir, dirname, basename, expanduser
+from os.path import isdir
 
 from .config import Config
 
@@ -27,7 +27,12 @@ def List(*patterns, wildcard: bool = False, campaign_store=None):
 
 def _SetupArgs(args=None, prog=None):
     parser = argparse.ArgumentParser(prog=prog)
-    parser.add_argument("pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*")
+    parser.add_argument(
+        "pattern",
+        help="filter pattern(s) as regular expressions",
+        default=None,
+        nargs="*",
+    )
     parser.add_argument(
         "-w",
         "--wildcard",
@@ -35,8 +40,12 @@ def _SetupArgs(args=None, prog=None):
         action="store_true",
         default=False,
     )
-    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
-    parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
+    parser.add_argument(
+        "-s", "--campaign_store", help="Path to local campaign store", default=None
+    )
+    parser.add_argument(
+        "-v", "--verbose", help="More verbosity", action="count", default=0
+    )
     args = parser.parse_args(args=args)
     return _SetDefaults(args)
 
@@ -65,12 +74,17 @@ def _SetDefaults(args: argparse.Namespace):
 
 def _CheckCampaignStore(args):
     if args.campaign_store is not None and not isdir(args.campaign_store):
-        print("ERROR: Campaign directory " + args.campaign_store + " does not exist", flush=True)
+        print(
+            "ERROR: Campaign directory " + args.campaign_store + " does not exist",
+            flush=True,
+        )
         exit(1)
 
 
-def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
-    result = []
+def _List(
+    args: argparse.Namespace, collect: bool = True, campaign_store=None
+) -> list[str]:
+    result: list[str] = []
     path = campaign_store
     if path is None:
         path = args.campaign_store
