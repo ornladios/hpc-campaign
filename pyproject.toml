@@ -67,3 +67,18 @@ include = ["hpc_campaign"]
 exclude = ["**/__pycache__"]
 reportPossiblyUnboundVariable = false
 
+[tool.pylint]
+
+# Section for disabling specific messages
+[tool.pylint.messages_control]
+disable = [
+    # C0103 is for invalid-name (e.g., non-snake_case functions/variables)
+    "C0103",
+    # W0718 and W0719: Catching too general exception Exception (broad-exception-caught)
+    "W0718",
+    "W0719",
+]
+
+[tool.pylint.format]
+# Maximum number of characters on a single line (default: 100)
+max-line-length = 120
