@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-
-import yaml
+"""
+A configuration utility for managing user settings and a Host config file parser.
+"""
 from os.path import expanduser
+import yaml
 
 ACA_VERSION = "0.6"
 # 0.2 added key encryption (added table key, modfified table bpdataset)
@@ -13,7 +15,7 @@ ACA_VERSION = "0.6"
 REDIS_PORT = 6379
 
 
-class Config:
+class Config: # pylint: disable=R0903
     """User config and Hosts config file parser"""
 
     def __init__(self):
@@ -24,7 +26,7 @@ class Config:
         path = expanduser("~/.config/hpc-campaign/config.yaml")
         try:
             doc = {}
-            with open(path) as f:
+            with open(path, encoding='utf-8') as f:
                 doc = yaml.safe_load(f)
             camp = doc.get("Campaign")
             if isinstance(camp, dict):
@@ -38,14 +40,15 @@ class Config:
                     if key == "verbose":
                         self.verbose = value
         except FileNotFoundError:
-            None
+            pass
 
     def read_host_config(self) -> dict:
+        """Function to read user configuraion"""
         path = expanduser("~/.config/hpc-campaign/hosts.yaml")
         doc = {}
         try:
-            with open(path) as f:
+            with open(path, encoding='utf-8') as f:
                 doc = yaml.safe_load(f)
         except FileNotFoundError:
-            None
+            pass
         return doc

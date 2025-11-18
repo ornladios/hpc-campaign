@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
+"""
+Functions for handling the caching of datasets within campaign archives
+"""
 import argparse
 import sqlite3
-import redis
-from os import walk, listdir
 from shutil import rmtree
 from re import match
 from glob import glob
+from os import walk, listdir
 from os.path import exists, join, getsize
-from sys import exit
-from time import sleep
+import sys
 
+import redis
 import redis.exceptions
 
 from .config import Config, REDIS_PORT
@@ -17,16 +19,33 @@ from .utils import timestamp_to_datetime, input_yes_or_no
 
 
 def setup_args(cfg: Config, args=None, prog=None):
+    """Function for setting up the configuration arguments for caching
+    """
     parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument(
         "command",
         help="Command: list/clear",
         choices=["list", "clear"],
     )
-    parser.add_argument("campaign", help="Campaign name or path, with .aca or without", default=None, nargs="?")
-    parser.add_argument("--redis-port", "-p", help="Key-value database port", default=REDIS_PORT)
-    parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
-    parser.add_argument("--yes-to-all", "-y", help="Answer yes automatically", action="store_true", default=False)
+    parser.add_argument(
+        "campaign",
+        help="Campaign name or path, with .aca or without",
+        default=None,
+        nargs="?",
+    )
+    parser.add_argument(
+        "--redis-port", "-p", help="Key-value database port", default=REDIS_PORT
+    )
+    parser.add_argument(
+        "--verbose", "-v", help="More verbosity", action="count", default=0
+    )
+    parser.add_argument(
+        "--yes-to-all",
+        "-y",
+        help="Answer yes automatically",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args(args=args)
 
     args.CampaignFileName = args.campaign
@@ -38,7 +57,9 @@ def setup_args(cfg: Config, args=None, prog=None):
             and not args.CampaignFileName.startswith("/")
             and cfg.campaign_store_path is not None
         ):
-            args.CampaignFileName = cfg.campaign_store_path + "/" + args.CampaignFileName
+            args.CampaignFileName = (
+                cfg.campaign_store_path + "/" + args.CampaignFileName
+            )
 
     if args.verbose > 1:
         print(f"# Verbosity = {args.verbose}")
@@ -50,16 +71,20 @@ def setup_args(cfg: Config, args=None, prog=None):
 
 
 def folder_size(folder_path: str) -> int:
-    folder_size = 0
-    for path, dirs, files in walk(folder_path):
+    """Function returning the folder size for a given path
+    """
+    fsize = 0
+    for path, _, files in walk(folder_path):
         for f in files:
             fp = join(path, f)
-            folder_size += getsize(fp)
-    return folder_size
+            fsize += getsize(fp)
+    return fsize
 
 
-def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
-    archives = {}  # organize datasets to archives
+async def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
+    """Function to list all the cached datasets
+    """
+    archives: dict = {}  # organize datasets to archives
     cache_folders = glob("[0-9a-f][0-9a-f][0-9a-f]", root_dir=cfg.cache_path)
     if args.verbose > 1:
         print(f"# Found {len(cache_folders)} cache folders in cache directory")
@@ -68,31 +93,38 @@ def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
         dataset_ids = glob("[0-9a-f]*", root_dir=folder_path)
         if args.verbose > 1:
             print(f"# Found {len(dataset_ids)} datasets in cache folder {folder}")
-        for id in dataset_ids:
+        for did in dataset_ids:
             archive_name = "unknown"
-            infoname = join(folder_path, id, "info.txt")
+            infoname = join(folder_path, did, "info.txt")
             if exists(infoname):
-                infofile = open(infoname, "r")
-                for line in infofile:
-                    if match("Campaign = ", line):
-                        archive_name = line[11:-1]
-            dirsize = folder_size(join(folder_path, id))
+                with open(infoname, "r", encoding='utf-8') as infofile:
+                    for line in infofile:
+                        if match("Campaign = ", line):
+                            archive_name = line[11:-1]
+            dirsize = folder_size(join(folder_path, did))
 
-            kvkeys = kvdb.keys(id + "*")
+            kvkeys = await kvdb.keys(did + "*")
             nkv = len(kvkeys)
             kvsize = 0
             for key in kvkeys:
-                kvsize += kvdb.memory_usage(key)
+                size = await kvdb.memory_usage(key)
+                kvsize += size
 
             if args.verbose > 1:
-                print(f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}")
-            entry = {id: {"dirsize": dirsize, "nkv": nkv, "kvsize": kvsize}}
+                print(
+                    f"# {did} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}"
+                )
+            entry = {did: {"dirsize": dirsize, "nkv": nkv, "kvsize": kvsize}}
             if archive_name not in archives:
                 archives[archive_name] = {}
             archives[archive_name].update(entry)
     if args.verbose > 1:
         print("")
+    print_archives(archives, args.verbose)
 
+def print_archives(archives, verbose):
+    """Function to print the content of cached archives
+    """
     print("folder-size     db-entries db-size     campaign name")
     print("--------------------------------------------------------------------------")
     size_all = 0
@@ -102,7 +134,7 @@ def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
         size_arch = 0
         nkv_arch = 0
         kvsize_arch = 0
-        for id, idvalues in archives[arch].items():
+        for did, idvalues in archives[arch].items():
             size_arch += idvalues["dirsize"]
             nkv_arch += idvalues["nkv"]
             kvsize_arch += idvalues["kvsize"]
@@ -110,20 +142,29 @@ def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
         size_all += size_arch
         nkv_all += nkv_arch
         kvsize_all += kvsize_arch
-        if args.verbose > 0:
-            for id, idvalues in archives[arch].items():
-                print(f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  " f"{idvalues['kvsize']:>10}     {id}")
+        if verbose > 0:
+            for did, idvalues in archives[arch].items():
+                print(
+                    f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  "
+                    f"{idvalues['kvsize']:>10}     {did}"
+                )
     print(f"{size_all:<15} {nkv_all:<10} {kvsize_all}")
 
 
-def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis, id: str):
-    kvkeys = kvdb.keys(id + "*")
+async def delete_cache_items(
+    args: argparse.Namespace, cfg: Config, kvdb: redis.Redis, did: str
+):
+    """Function to delete the cache items
+    """
+    kvkeys = await kvdb.keys(did + "*")
     nkeys = len(kvkeys)
-    parent_path = join(cfg.cache_path, id[0:3])
-    path = join(parent_path, id)
+    parent_path = join(cfg.cache_path, did[0:3])
+    path = join(parent_path, did)
 
     if nkeys > 0 or exists(path):
-        if args.yes_to_all or input_yes_or_no("Do you want to clear cache for " + id + " (y/n)? "):
+        if args.yes_to_all or input_yes_or_no(
+            "Do you want to clear cache for " + did + " (y/n)? "
+        ):
             # delete KV entries
             if nkeys > 0:
                 kvdb.delete(*kvkeys)
@@ -140,14 +181,16 @@ def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis,
 
     # delete cache_path/XXX is empty
     if exists(parent_path):
-        dir = listdir(parent_path)
-        if len(dir) == 0:
+        pdir = listdir(parent_path)
+        if len(pdir) == 0:
             rmtree(parent_path, ignore_errors=True)
             if args.verbose > 0:
                 print(f"  deleted folder {parent_path}")
 
 
-def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
+async def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
+    """Function for clearing the cache
+    """
     con = sqlite3.connect(args.CampaignFileName)
     cur = con.cursor()
 
@@ -159,40 +202,46 @@ def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
     res = cur.execute("select rowid, uuid, name, modtime from dataset")
     datasets = res.fetchall()
     for dataset in datasets:
-        id = dataset[1]
+        did = dataset[1]
         t = timestamp_to_datetime(dataset[3])
-        print(f"        dataset = {id}    {t}    {dataset[2]} ")
-        delete_cache_items(args, cfg, kvdb, id)
+        print(f"        dataset = {did}    {t}    {dataset[2]} ")
+        await delete_cache_items(args, cfg, kvdb, did)
 
     cur.close()
     con.close()
 
 
 def connect_to_redis(host: str, port: int, db: int) -> redis.Redis | None:
+    """Function to connect to Redis
+    """
     r = redis.Redis(host=host, port=port, db=db)
     try:
         r.ping()
     except (redis.exceptions.ConnectionError, ConnectionRefusedError):
-        print(f"Could not connect to Redis at {host}:{port}, db={db}. Check if Redis is running.")
+        print(
+            f"Could not connect to Redis at {host}:{port}, db={db}. Check if Redis is running."
+        )
         return None
     return r
 
 
 def main(args=None, prog=None):
+    """Function to test the functionality of the caching system
+    """
     # default values
     cfg = Config()
     args = setup_args(cfg, args=args, prog=prog)
     if not cfg.cache_path:
         print("No cachepath specified in user config")
-        exit(1)
+        sys.exit(1)
 
     if not exists(cfg.cache_path):
         print(f"Could not find {cfg.cache_path}")
-        exit(1)
+        sys.exit(1)
 
     kvdb = connect_to_redis(host="localhost", port=args.redis_port, db=0)
     if not kvdb:
-        exit(1)
+        sys.exit(1)
 
     if args.command == "list":
         if args.CampaignFileName is not None:
@@ -202,7 +251,7 @@ def main(args=None, prog=None):
     elif args.command == "clear":
         if args.CampaignFileName is None:
             print("Missing campaign archive argument for clearing cache")
-            exit(1)
+            sys.exit(1)
         clear_cache(args, cfg, kvdb)
 
 

@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
-
+"""
+Functions for listing all the campaign archive in a path
+"""
 import argparse
 import glob
 import re
+import sys
 import fnmatch
-from os.path import exists, isdir, dirname, basename, expanduser
+from os.path import isdir
 
 from .config import Config
 
 
 def List(*patterns, wildcard: bool = False, campaign_store=None):
+    """
+    Function to return the list of campaign archives
+    Input:
+    - patterns: regular expressions for the name of the campaign archives
+    - wildcard: if there are any wildcards used in the expression
+    - campaign_store: path to the folder where to look for campaigns (default: the campaign store path)
+    """
     args = argparse.Namespace()
     if wildcard:
         args.wildcard = True
@@ -27,7 +37,12 @@ def List(*patterns, wildcard: bool = False, campaign_store=None):
 
 def _SetupArgs(args=None, prog=None):
     parser = argparse.ArgumentParser(prog=prog)
-    parser.add_argument("pattern", help="filter pattern(s) as regular expressions", default=None, nargs="*")
+    parser.add_argument(
+        "pattern",
+        help="filter pattern(s) as regular expressions",
+        default=None,
+        nargs="*",
+    )
     parser.add_argument(
         "-w",
         "--wildcard",
@@ -35,8 +50,12 @@ def _SetupArgs(args=None, prog=None):
         action="store_true",
         default=False,
     )
-    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
-    parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
+    parser.add_argument(
+        "-s", "--campaign_store", help="Path to local campaign store", default=None
+    )
+    parser.add_argument(
+        "-v", "--verbose", help="More verbosity", action="count", default=0
+    )
     args = parser.parse_args(args=args)
     return _SetDefaults(args)
 
@@ -65,12 +84,17 @@ def _SetDefaults(args: argparse.Namespace):
 
 def _CheckCampaignStore(args):
     if args.campaign_store is not None and not isdir(args.campaign_store):
-        print("ERROR: Campaign directory " + args.campaign_store + " does not exist", flush=True)
-        exit(1)
+        print(
+            "ERROR: Campaign directory " + args.campaign_store + " does not exist",
+            flush=True,
+        )
+        sys.exit(1)
 
 
-def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
-    result = []
+def _List(
+    args: argparse.Namespace, collect: bool = True, campaign_store=None
+) -> list[str]:
+    result: list[str] = []
     path = campaign_store
     if path is None:
         path = args.campaign_store
@@ -83,33 +107,36 @@ def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -
     if len(acaList) == 0:
         print("There are no campaign archives in  " + path)
         return result
-    else:
-        startCharPos = len(path) + 1
-        for f in acaList:
-            name = f[startCharPos:]
-            matches = False
-            if len(args.pattern) == 0:
-                matches = True
+    startCharPos = len(path) + 1
+    for f in acaList:
+        name = f[startCharPos:]
+        matches = False
+        if len(args.pattern) == 0:
+            matches = True
+            continue
+        for p in args.pattern:
+            if args.wildcard:
+                if fnmatch.fnmatch(name, p):
+                    matches = True
+                    break
             else:
-                for p in args.pattern:
-                    if args.wildcard:
-                        if fnmatch.fnmatch(name, p):
-                            matches = True
-                            break
-                    else:
-                        if re.search(p, name):
-                            matches = True
-                            break
+                if re.search(p, name):
+                    matches = True
+                    break
 
-            if matches:
-                if collect:
-                    result.append(f[startCharPos:])
-                else:
-                    print(f[startCharPos:])
+        if matches:
+            if collect:
+                result.append(f[startCharPos:])
+            else:
+                print(f[startCharPos:])
     return result
 
 
 def main(args=None, prog=None):
+    """
+    Function to test if the campaign store path exists
+    and if yes, to list all the campaign archives within
+    """
     args = _SetupArgs(args=args, prog=prog)
     _CheckCampaignStore(args)
     _List(args, collect=False)
