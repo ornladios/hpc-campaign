@@ -1048,7 +1048,8 @@ def InfoDataset(
         + 'where datasetid = "'
         + str(datasetID)
         + '"'
-        + delete_condition_and,
+        + delete_condition_and
+        + " order by rowid",
     )
     replicas = res2.fetchall()
     for rep in replicas:
@@ -1079,13 +1080,13 @@ def InfoDataset(
             flagArchive = "A"
 
         if dataset[5] == "ADIOS" or dataset[5] == "HDF5":
-            res3 = SQLExecute(cur, f"select rowid from accuracy where replicaid = {replicaid}")
+            res3 = SQLExecute(cur, f"select rowid from accuracy where replicaid = {replicaid} order by rowid")
             acc = res3.fetchall()
             if len(acc) > 0:
                 flagAccuracy = "a"
 
         if dataset[5] == "IMAGE" or dataset[5] == "TEXT":
-            res3 = SQLExecute(cur, f"select rowid from file where replicaid = {replicaid}")
+            res3 = SQLExecute(cur, f"select rowid from file where replicaid = {replicaid} order by rowid")
             res = res3.fetchall()
             if len(res) > 0:
                 flagRemote = "e"
@@ -1101,7 +1102,7 @@ def InfoDataset(
         if dataset[5] == "IMAGE":
             res3 = SQLExecute(
                 cur,
-                'select rowid, x, y from resolution where replicaid = "' + str(replicaid) + '"',
+                'select rowid, x, y from resolution where replicaid = "' + str(replicaid) + '"' + " order by rowid",
             )
             res = res3.fetchall()
             if len(res) > 0:
@@ -1158,7 +1159,7 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
         delete_condition_where = ""
         delete_condition_and = ""
     print("Hosts and directories:")
-    res = SQLExecute(cur, "select rowid, hostname, longhostname from host" + delete_condition_where)
+    res = SQLExecute(cur, "select rowid, hostname, longhostname from host" + delete_condition_where + " order by rowid")
     hosts = res.fetchall()
     dirs_archived = [False]  # [0] is never accessed but needed since dir IDs run 1...n
     for host in hosts:
@@ -1170,7 +1171,8 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
             + 'where hostid = "'
             + str(host[0])
             + '"'
-            + delete_condition_and,
+            + delete_condition_and 
+            + " order by rowid"
         )
         dirs = res2.fetchall()
         for dir in dirs:
@@ -1197,7 +1199,7 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
     #
     # Keys
     #
-    res = SQLExecute(cur, "select rowid, keyid from key")
+    res = SQLExecute(cur, "select rowid, keyid from key order by rowid")
     keys = res.fetchall()
     if len(keys) > 0:
         print("Encryption keys:")
@@ -1209,7 +1211,7 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
     #
     # Time Series
     #
-    res = SQLExecute(cur, "select tsid, name from timeseries")
+    res = SQLExecute(cur, "select tsid, name from timeseries order by tsid")
     timeseries = res.fetchall()
     if len(timeseries) > 0:
         print("Time-series and their datasets:")
@@ -1231,7 +1233,9 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
     #
     res = SQLExecute(
         cur,
-        "select rowid, uuid, name, modtime, deltime, fileformat from dataset " "where tsid = 0 " + delete_condition_and,
+        "select rowid, uuid, name, modtime, deltime, fileformat from dataset " "where tsid = 0 " 
+        + delete_condition_and 
+        + " order by rowid",
     )
     datasets = res.fetchall()
     if len(datasets) > 0:
