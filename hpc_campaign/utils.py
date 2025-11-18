@@ -84,9 +84,9 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
-        except sqlite3.Error as e:
+        except sqlite3.Error as sqle:
             print(
-                f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+                f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {sqle}"
             )
             raise e
         else:
@@ -100,6 +100,8 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
 
 
 def SQLCommit(con: sqlite3.Connection):
+    """Function to commit the SQL connection
+    """
     try:
         con.commit()
     except sqlite3.OperationalError as e:
@@ -111,13 +113,12 @@ def SQLCommit(con: sqlite3.Connection):
             sleep(1.0)
             try:
                 con.commit()
-            except sqlite3.Error as e:
+            except sqlite3.Error as sqle:
                 print(
-                    f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
+                    f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {sqle}"
                 )
-                raise e
-            else:
-                print("SQL recommit succeeded")
+                raise sqle
+            print("SQL recommit succeeded")
     except sqlite3.Error as e:
         print(f"SQL commit Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         raise e

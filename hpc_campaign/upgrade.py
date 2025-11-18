@@ -1,3 +1,5 @@
+"""Function to upgrade the campaign archives to the 0.6.0 format
+"""
 import argparse
 import sqlite3
 from .config import ACA_VERSION
@@ -7,7 +9,10 @@ from .utils import SQLExecute, SQLCommit, SQLErrorList
 def _upgrade_to_0_6(
     args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection
 ):
-    print("Upgrade to 0.6")
+    """Function to upgrade the campaign archives to the 0.6.0 format
+    """
+    if args.verbose:
+        print("Upgrade to 0.6")
     # host
     SQLExecute(cur, "ALTER TABLE host ADD default_protocol TEXT")
     # replica
@@ -59,6 +64,8 @@ UPGRADESTEP = {"0.5": {"new_version": "0.6", "func": _upgrade_to_0_6}}
 
 
 def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+    """Function to upgrade campaign archives with versions different than 0.6.0
+    """
     res = SQLExecute(cur, 'select version from info where id = "ACA"')
     info = res.fetchone()
     version: str = info[0]

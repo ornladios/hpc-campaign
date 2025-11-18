@@ -1,3 +1,5 @@
+"""Functions for handling the metadata for hdf-5 datasets
+"""
 try:
     import h5py
 
@@ -18,7 +20,7 @@ def h5py_compatible_attributes(in_object):
     """Are all attributes of an object readable in h5py?"""
     try:
         # Force obtaining the attributes so that error may appear
-        [0 for at in in_object.attrs.items()]
+        _ = [0 for at in in_object.attrs.items()]
         return True
     except Exception:
         return False
@@ -55,7 +57,7 @@ def walk(in_object, out_object, log=False):
                     if log:
                         _report("Recreated without copy", key, in_obj, in_obj.size)
             else:
-                raise Exception("Invalid object type %s" % type(in_obj))
+                raise Exception(f"Invalid object type {type(in_obj)}")
             copy_attributes(in_obj, out_obj)
         else:
             # We copy datatypes and objects with non-understandable attributes
@@ -82,11 +84,14 @@ def copy_hdf5_file_without_data(infilename: str, outfilename: str, log: bool = F
         ):
             walk(in_file, out_file, log=log)
         return stat(infilename).st_size, stat(outfilename).st_size
-    else:
-        return 0, 0
+    return 0, 0
 
 
 def IsHDF5Dataset(dataset):
+    """
+    Function returning a True if the given dataset is an hdf-5 file
+    and False otherwise
+    """
     it_is = False
     if __HAVE_H5PY__:
         try:
@@ -97,7 +102,10 @@ def IsHDF5Dataset(dataset):
     return it_is
 
 
-def main(args=sys.argv[1:3], prog=None):
+def main(args=sys.argv[1:3]):
+    """
+    Code to test the metadata handling for hdf-5 datasets
+    """
     infilename, outfilename = args
     insize, outsize = copy_hdf5_file_without_data(infilename, outfilename, log=True)
     print(f"{infilename} size = {insize}")

@@ -1,13 +1,17 @@
-import nacl.encoding
-import nacl.secret
-import nacl.utils
-import nacl.pwhash
+"""
+Norbert add docstring
+"""
+import sys
 import uuid
-import yaml
 from datetime import datetime, UTC
 from getpass import getpass
 from os.path import exists
 from typing import Optional
+import nacl.encoding
+import nacl.secret
+import nacl.utils
+import nacl.pwhash
+import yaml
 
 
 class Key:
@@ -22,6 +26,9 @@ class Key:
         self.salt = Optional[bytes]
 
     def generate(self, note: str, pwd: Optional[bytes] = None):
+        """
+        Norbert add docstring
+        """
         self.date = datetime.now(UTC)
         self.note = note
 
@@ -49,6 +56,9 @@ class Key:
             self.salt = None
 
     def generate_interactive(self, password_required: bool = False):
+        """
+        Norbert add docstring
+        """
         print("Type a note for this key: ", end="")
         note = input()
         if password_required:
@@ -64,6 +74,9 @@ class Key:
         self.generate(note, pwd)
 
     def write(self, path: str):
+        """
+        Norbert add docstring
+        """
         doc = {}
         doc["note"] = self.note
         doc["id"] = self.id
@@ -71,11 +84,14 @@ class Key:
         if self.salt:
             doc["salt"] = self.salt.hex()
         doc["date"] = self.date.isoformat()
-        with open(path, "w") as file:
+        with open(path, "w", encoding='utf-8') as file:
             yaml.dump(doc, file, sort_keys=False)
 
     def read(self, path: str):
-        with open(path, "r") as file:
+        """
+        Norbert add docstring
+        """
+        with open(path, "r", encoding='utf-8') as file:
             doc = yaml.safe_load(file)
 
         self.note = doc["note"]
@@ -90,6 +106,9 @@ class Key:
             self.salt = None
 
     def get_decrypted_key(self, pwd: Optional[bytes] = None) -> bytes:
+        """
+        Norbert add docstring
+        """
         if self.salt:
             if not pwd:
                 pwd = bytes(getpass("Password: "), "utf-8")
@@ -103,10 +122,12 @@ class Key:
             )
             pbox = nacl.secret.SecretBox(pkey)
             return pbox.decrypt(self.key)
-        else:
-            return self.key
+        return self.key
 
     def info(self, do_verify: bool = False) -> bool:
+        """
+        Norbert add docstring
+        """
         print(f"created on: {datetime.fromisoformat(self.date)}")
         print(f"      note: {self.note}")
         print(f"      uuid: {self.id}")
@@ -126,9 +147,12 @@ class Key:
 
 
 def read_key(path: str) -> Key:
+    """
+    Norbert add docstring
+    """
     if not exists(path):
         print(f"Could not find key file {path}")
-        exit(1)
+        sys.exit(1)
     key = Key()
     key.read(path)
     return key
