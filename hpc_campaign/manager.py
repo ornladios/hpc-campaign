@@ -841,7 +841,7 @@ def AddArchivalStorage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlit
 
     res = SQLExecute(
         cur,
-        "select rowid from archive where dirid = " + str(hostID) + ' and tarname = "' + tarname + '"',
+        "select rowid from archive where dirid = " + str(dirID) + ' and tarname = "' + tarname + '"',
     )
     row = res.fetchone()
     if row is not None:
