@@ -8,7 +8,6 @@ from re import match
 from glob import glob
 from os.path import exists, join, getsize
 from sys import exit
-from time import sleep
 
 import redis.exceptions
 
@@ -23,10 +22,25 @@ def setup_args(cfg: Config, args=None, prog=None):
         help="Command: list/clear",
         choices=["list", "clear"],
     )
-    parser.add_argument("campaign", help="Campaign name or path, with .aca or without", default=None, nargs="?")
-    parser.add_argument("--redis-port", "-p", help="Key-value database port", default=REDIS_PORT)
-    parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
-    parser.add_argument("--yes-to-all", "-y", help="Answer yes automatically", action="store_true", default=False)
+    parser.add_argument(
+        "campaign",
+        help="Campaign name or path, with .aca or without",
+        default=None,
+        nargs="?",
+    )
+    parser.add_argument(
+        "--redis-port", "-p", help="Key-value database port", default=REDIS_PORT
+    )
+    parser.add_argument(
+        "--verbose", "-v", help="More verbosity", action="count", default=0
+    )
+    parser.add_argument(
+        "--yes-to-all",
+        "-y",
+        help="Answer yes automatically",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args(args=args)
 
     args.CampaignFileName = args.campaign
@@ -38,7 +52,9 @@ def setup_args(cfg: Config, args=None, prog=None):
             and not args.CampaignFileName.startswith("/")
             and cfg.campaign_store_path is not None
         ):
-            args.CampaignFileName = cfg.campaign_store_path + "/" + args.CampaignFileName
+            args.CampaignFileName = (
+                cfg.campaign_store_path + "/" + args.CampaignFileName
+            )
 
     if args.verbose > 1:
         print(f"# Verbosity = {args.verbose}")
@@ -85,7 +101,9 @@ def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
                 kvsize += kvdb.memory_usage(key)
 
             if args.verbose > 1:
-                print(f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}")
+                print(
+                    f"# {id} from archive {archive_name}, cache size = {dirsize}, # of keys = {nkv}"
+                )
             entry = {id: {"dirsize": dirsize, "nkv": nkv, "kvsize": kvsize}}
             if archive_name not in archives:
                 archives[archive_name] = {}
@@ -112,18 +130,25 @@ def list_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
         kvsize_all += kvsize_arch
         if args.verbose > 0:
             for id, idvalues in archives[arch].items():
-                print(f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  " f"{idvalues['kvsize']:>10}     {id}")
+                print(
+                    f"{idvalues['dirsize']:>14}   {idvalues['nkv']:>8}  "
+                    f"{idvalues['kvsize']:>10}     {id}"
+                )
     print(f"{size_all:<15} {nkv_all:<10} {kvsize_all}")
 
 
-def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis, id: str):
+def delete_cache_items(
+    args: argparse.Namespace, cfg: Config, kvdb: redis.Redis, id: str
+):
     kvkeys = kvdb.keys(id + "*")
     nkeys = len(kvkeys)
     parent_path = join(cfg.cache_path, id[0:3])
     path = join(parent_path, id)
 
     if nkeys > 0 or exists(path):
-        if args.yes_to_all or input_yes_or_no("Do you want to clear cache for " + id + " (y/n)? "):
+        if args.yes_to_all or input_yes_or_no(
+            "Do you want to clear cache for " + id + " (y/n)? "
+        ):
             # delete KV entries
             if nkeys > 0:
                 kvdb.delete(*kvkeys)
@@ -173,7 +198,9 @@ def connect_to_redis(host: str, port: int, db: int) -> redis.Redis | None:
     try:
         r.ping()
     except (redis.exceptions.ConnectionError, ConnectionRefusedError):
-        print(f"Could not connect to Redis at {host}:{port}, db={db}. Check if Redis is running.")
+        print(
+            f"Could not connect to Redis at {host}:{port}, db={db}. Check if Redis is running."
+        )
         return None
     return r
 

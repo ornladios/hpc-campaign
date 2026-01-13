@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 from os.path import expanduser
 from datetime import datetime
 
-from .key import Key, read_key
+from .key import Key
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -83,7 +83,16 @@ class LoginWindowRemote(object):
 
 
 class LoginWindowJumpRemote(object):
-    def __init__(self, master, jump_host, jump_user, jump_auth, remote_host, remote_user, remote_auth):
+    def __init__(
+        self,
+        master,
+        jump_host,
+        jump_user,
+        jump_auth,
+        remote_host,
+        remote_user,
+        remote_auth,
+    ):
         global g_remote_user, g_remote_pass
         global g_jump_user, g_jump_pass
         g_remote_user = None
@@ -177,10 +186,16 @@ class Handler(SocketServer.BaseRequestHandler):
                 self.request.getpeername(),
             )
         except Exception as e:
-            verbose("Incoming request to %s:%d failed: %s" % (self.chain_host, self.chain_port, repr(e)))
+            verbose(
+                "Incoming request to %s:%d failed: %s"
+                % (self.chain_host, self.chain_port, repr(e))
+            )
             return
         if chan is None:
-            verbose("Incoming request to %s:%d was rejected by the SSH server." % (self.chain_host, self.chain_port))
+            verbose(
+                "Incoming request to %s:%d was rejected by the SSH server."
+                % (self.chain_host, self.chain_port)
+            )
             return
 
         verbose(
@@ -262,12 +277,16 @@ class SSHJumpLinkInfo:
 
 
 class SSHConnectedServerInfo:
-    def __init__(self, server: SSHServerInfo, user: SSHUserInfo, client: paramiko.SSHClient):
+    def __init__(
+        self, server: SSHServerInfo, user: SSHUserInfo, client: paramiko.SSHClient
+    ):
         self.server = server
         self.user = user
         self.client = client
 
-    def set_server_info(self, server: SSHServerInfo, user: SSHUserInfo, client: paramiko.SSHClient):
+    def set_server_info(
+        self, server: SSHServerInfo, user: SSHUserInfo, client: paramiko.SSHClient
+    ):
         self.server = server
         self.user = user
         self.client = client
@@ -395,7 +414,9 @@ class SSHConnectRemote:
         client.load_system_host_keys()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         if g_proxy_command:
-            proxy_jump_command = g_proxy_command.replace("%h", host_name).replace("%p", str(ssh_port))
+            proxy_jump_command = g_proxy_command.replace("%h", host_name).replace(
+                "%p", str(ssh_port)
+            )
             # verbose("    using proxy command:", proxy_jump_command)
             proxy = paramiko.ProxyCommand(proxy_jump_command)
             sock_channel = proxy
@@ -428,14 +449,15 @@ class SSHConnectRemote:
         user_pass: str = None,
         sock_channel: paramiko.Channel = None,
     ):
-
         conn_err, self.remote = self._connect_server(
             host_name, ssh_port, user_name, user_pass, sock_channel=sock_channel
         )
         if conn_err != SSH_NO_ERROR:
             return SSH_CONNECT_ERROR
 
-        self.remote_connection_info = SSHRemoteConnectionInfo(self.remote, jump=None, jump_link=None)
+        self.remote_connection_info = SSHRemoteConnectionInfo(
+            self.remote, jump=None, jump_link=None
+        )
         return SSH_NO_ERROR
 
     def connect_remote_via_jump(
@@ -446,7 +468,6 @@ class SSHConnectRemote:
         remote_user_name: str,
         remote_user_pass: int,
     ):
-
         verbose(
             "Connecting to remote server %s via connected jump server %s."
             % (remote_host_name, connected_jump.server.host_name)
@@ -456,8 +477,13 @@ class SSHConnectRemote:
             # Create a channel via jump server
             self.jump_transport = connected_jump.client.get_transport()
             dest_addr = (remote_host_name, remote_ssh_port)
-            src_addr = (connected_jump.server.host_name, connected_jump.server.host_port)
-            self.jump_channel = self.jump_transport.open_channel("direct-tcpip", dest_addr, src_addr)
+            src_addr = (
+                connected_jump.server.host_name,
+                connected_jump.server.host_port,
+            )
+            self.jump_channel = self.jump_transport.open_channel(
+                "direct-tcpip", dest_addr, src_addr
+            )
         except Exception as e:
             print("An exception has occured: %r" % (e))
             return None
@@ -475,7 +501,9 @@ class SSHConnectRemote:
 
         self.jump = connected_jump
         jump_link = SSHJumpLinkInfo(self.jump_transport, self.jump_channel)
-        self.remote_connection_info = SSHRemoteConnectionInfo(self.remote, self.jump, jump_link)
+        self.remote_connection_info = SSHRemoteConnectionInfo(
+            self.remote, self.jump, jump_link
+        )
 
         return SSH_NO_ERROR
 
@@ -523,12 +551,25 @@ class SSHLocalRemoteTunnel:
         forward_server = ForwardServer(("", local_port), SubHandler)
         return forward_server
 
-    def _ssh_forward(self, client: paramiko.SSHClient, local_port: int, dest: SSHServerInfo, temptunnel: bool):
-        verbose("Opening tunnel for local port %d to %s:%d " % (local_port, dest.host_name, dest.host_port))
+    def _ssh_forward(
+        self,
+        client: paramiko.SSHClient,
+        local_port: int,
+        dest: SSHServerInfo,
+        temptunnel: bool,
+    ):
+        verbose(
+            "Opening tunnel for local port %d to %s:%d "
+            % (local_port, dest.host_name, dest.host_port)
+        )
         forward_server = None
         try:
             forward_server = self._forward_tunnel(
-                local_port, dest.host_name, dest.host_port, client.get_transport(), temptunnel
+                local_port,
+                dest.host_name,
+                dest.host_port,
+                client.get_transport(),
+                temptunnel,
             )
             return forward_server
         except Exception as e:
@@ -540,15 +581,21 @@ class SSHLocalRemoteTunnel:
         forward_server.serve_forever()
         verbose("Shut down.")
 
-    def start_forward_server(self, local_port: int, dest_server: SSHServerInfo, temptunnel: bool):
+    def start_forward_server(
+        self, local_port: int, dest_server: SSHServerInfo, temptunnel: bool
+    ):
         client = self.remote_connection_info.remote.client
-        self.forward_server = self._ssh_forward(client, local_port, dest_server, temptunnel)
+        self.forward_server = self._ssh_forward(
+            client, local_port, dest_server, temptunnel
+        )
 
         if self.forward_server is None:
             return None, None, None, SSH_TUNNEL_ERROR
         verbose("Got the forward server")
 
-        thread = threading.Thread(target=self._run_forward_server, args=(self.forward_server,))
+        thread = threading.Thread(
+            target=self._run_forward_server, args=(self.forward_server,)
+        )
         thread.daemon = True
         thread.start()
         while thread.is_alive() is False:
@@ -564,7 +611,10 @@ class SSHLocalRemoteTunnel:
             verbose("Forwarding request to %s:%d failed: %r" % (host, port, e))
             return
 
-        verbose("Connected!  Tunnel open %r -> %r -> %r" % (chan.origin_addr, chan.getpeername(), (host, port)))
+        verbose(
+            "Connected!  Tunnel open %r -> %r -> %r"
+            % (chan.origin_addr, chan.getpeername(), (host, port))
+        )
 
         while True:
             r, w, x = select.select([sock, chan], [], [])
@@ -582,7 +632,9 @@ class SSHLocalRemoteTunnel:
         sock.close()
         verbose("Tunnel closed from %r" % (chan.origin_addr,))
 
-    def _reverse_forward_tunnel(self, remote_server_port: int, dest_host: str, dest_port: int):
+    def _reverse_forward_tunnel(
+        self, remote_server_port: int, dest_host: str, dest_port: int
+    ):
         client = self.remote_connection_info.remote.client
         transport = client.get_transport()
         transport.request_port_forward("", remote_server_port)
@@ -590,14 +642,21 @@ class SSHLocalRemoteTunnel:
             chan = transport.accept(1000)
             if chan is None:
                 continue
-            thread = threading.Thread(target=self._reverse_forward_handler, args=(chan, dest_host, dest_port))
+            thread = threading.Thread(
+                target=self._reverse_forward_handler, args=(chan, dest_host, dest_port)
+            )
             thread.daemon = True
             thread.start()
             while thread.is_alive() is False:
                 time.sleep(THREAD_CHECK_TIME)
 
-    def reverse_forward_tunnel(self, remote_server_port: int, dest_host: str, dest_port: int):
-        thread = threading.Thread(target=self._reverse_forward_tunnel, args=(remote_server_port, dest_host, dest_port))
+    def reverse_forward_tunnel(
+        self, remote_server_port: int, dest_host: str, dest_port: int
+    ):
+        thread = threading.Thread(
+            target=self._reverse_forward_tunnel,
+            args=(remote_server_port, dest_host, dest_port),
+        )
         thread.deamon = True
         thread.start()
         while thread.is_alive() is False:
@@ -692,7 +751,6 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         jump_auth: str = "Password",
         remote_auth: str = "Password",
     ):
-
         root = tk.Tk()
         tmp_str = "Login Window Jump Remote"
         if try_cnt != 0:
@@ -712,7 +770,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         remote_user = SSHUserInfo(g_remote_user, g_remote_pass)
         return jump_user, remote_user
 
-    def check_connected_remote(self, remote_host_name: str, remote_user_name: str) -> SSHConnectRemote:
+    def check_connected_remote(
+        self, remote_host_name: str, remote_user_name: str
+    ) -> SSHConnectRemote:
         for srvr in g_remote_conn_list:
             srvr_info = srvr.get_remote_connection_info()
             verbose(
@@ -734,7 +794,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         global g_remote_conn_list
         remote_host_name = req_def["remote_host"]
         remote_user_name = req_def["username"]
-        ssh_connected_remote = self.check_connected_remote(remote_host_name, remote_user_name)
+        ssh_connected_remote = self.check_connected_remote(
+            remote_host_name, remote_user_name
+        )
         if ssh_connected_remote is not None:
             return ssh_connected_remote
 
@@ -742,12 +804,16 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         jump_user_name = req_def["jumpuser"]
         ssh_connected_jump = None
         if jump_host_name is not None:
-            ssh_connected_jump = self.check_connected_remote(jump_host_name, jump_user_name)
+            ssh_connected_jump = self.check_connected_remote(
+                jump_host_name, jump_user_name
+            )
 
         if req_def["auth"] == "publickey":
             ssh_connect_remote = SSHConnectRemote()
             if req_def["identity_file"] is not None:
-                ssh_connect_remote.options.keyfile = expanduser(req_def["identity_file"])
+                ssh_connect_remote.options.keyfile = expanduser(
+                    req_def["identity_file"]
+                )
             error_no = ssh_connect_remote.connect_remote(
                 host_name=remote_host_name,
                 ssh_port=SSH_PORT,
@@ -864,7 +930,10 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
             a_socket.close()
 
         if result is False:
-            verbose("Port %s is not available after %d tries" % (requested_port, self.max_count))
+            verbose(
+                "Port %s is not available after %d tries"
+                % (requested_port, self.max_count)
+            )
             return False
         else:
             return True
@@ -910,7 +979,12 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
     def get_local_port(self, requested_port=None, max_count=2000):
         self.local_port = requested_port
         if requested_port is not None:
-            if self.check_requested_local_port_available(requested_port=requested_port, max_count=max_count) is False:
+            if (
+                self.check_requested_local_port_available(
+                    requested_port=requested_port, max_count=max_count
+                )
+                is False
+            ):
                 self.local_port = None
         else:
             self.local_port = self.find_available_local_port()
@@ -918,7 +992,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 
     def check_service_running(self, service_name, service_group):
         for tnnl in g_open_tunnel_list:
-            if (service_name == tnnl.service_name) and (service_group == tnnl.service_group):
+            if (service_name == tnnl.service_name) and (
+                service_group == tnnl.service_group
+            ):
                 if tnnl.cookie is not None:
                     return tnnl.local_port, tnnl.cookie
                 return tnnl.local_port, None
@@ -931,7 +1007,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if g_server_config_data["version"] == "v0.1":
             verbose("Config version v0.1")
             return self.parse_service_request_version01(req_qry)
-        verbose("Unsupported configuration version: %s" % (g_server_config_data["version"],))
+        verbose(
+            "Unsupported configuration version: %s" % (g_server_config_data["version"],)
+        )
         return None
 
     def parse_service_request_version01(self, req_qry):
@@ -979,9 +1057,13 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
                         req_def["auth"] = service_data["authentication"]
                         if "identity_file" in service_data:
                             req_def["identity_file"] = service_data["identity_file"]
-                        if ("local_port" not in req_qry) and ("local_port" in service_data):
+                        if ("local_port" not in req_qry) and (
+                            "local_port" in service_data
+                        ):
                             req_def["local_port"] = service_data["local_port"]
-                        elif ("local_port" in req_qry) and (int(req_qry["local_port"][0]) > 0):
+                        elif ("local_port" in req_qry) and (
+                            int(req_qry["local_port"][0]) > 0
+                        ):
                             req_def["local_port"] = req_qry["local_port"][0]
                         return req_def
         return None
@@ -1000,7 +1082,13 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         )
         if local_port is not None:
             if service_cookie is not None:
-                self.send_response("port:" + str(local_port) + ",cookie:" + str(service_cookie) + ",msg:no_error")
+                self.send_response(
+                    "port:"
+                    + str(local_port)
+                    + ",cookie:"
+                    + str(service_cookie)
+                    + ",msg:no_error"
+                )
             else:
                 self.send_response("port:" + str(local_port) + ",msg:no_error")
             return
@@ -1068,10 +1156,10 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         ):
             self.send_response("port:-1,msg:incorrect_service_request_format")
             return
-        if not req_def["conn"] in SUPPORTED_PROTOCOLS:
+        if req_def["conn"] not in SUPPORTED_PROTOCOLS:
             self.send_response("port:-1,msg:unsupported_protocol")
             return
-        if not req_def["auth"] in SUPPORTED_AUTH_METHODS:
+        if req_def["auth"] not in SUPPORTED_AUTH_METHODS:
             self.send_response("port:-1,msg:unsupported_authication_method")
             return
 
@@ -1079,7 +1167,11 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if "local_port" in req_def:
             requested_port = int(req_def["local_port"])
             if self.check_requested_local_port_available(requested_port) is False:
-                self.send_response("port:" + str(requested_port) + ",msg:requested_port_is_not_available")
+                self.send_response(
+                    "port:"
+                    + str(requested_port)
+                    + ",msg:requested_port_is_not_available"
+                )
                 return
 
         ssh_connect_remote = self.login_connect_remote(req_def)
@@ -1094,7 +1186,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if req_def["service_args"] is not None:
             service_command = service_command + " " + req_def["service_args"]
         print("Service command:", service_command)
-        r_stdin, r_stdout, r_stderr = ssh_tunnel_client.exec_remote_command(service_command)
+        r_stdin, r_stdout, r_stderr = ssh_tunnel_client.exec_remote_command(
+            service_command
+        )
         service_data = self.parse_service_response(r_stdout, r_stderr)
         print("SERVICE DATA: ", service_data)
         if service_data is None:
@@ -1123,8 +1217,10 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if "transient" in req_def["tunneltype"]:
             temptunnel = True
 
-        forward_server, thread_process, error_no = ssh_tunnel_client.start_forward_server(
-            local_port, remote_srvr, temptunnel=temptunnel
+        forward_server, thread_process, error_no = (
+            ssh_tunnel_client.start_forward_server(
+                local_port, remote_srvr, temptunnel=temptunnel
+            )
         )
         if error_no == SSH_NO_ERROR:
             remote_connect_info = ssh_tunnel_client.get_remote_connection_info()
@@ -1151,7 +1247,11 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
                 g_open_tunnel_list.append(forward_tunnel_info)
             if service_data["cookie"] is not None:
                 self.send_response(
-                    "port:" + str(local_port) + ",cookie:" + str(service_data["cookie"]) + ",msg:no_error"
+                    "port:"
+                    + str(local_port)
+                    + ",cookie:"
+                    + str(service_data["cookie"])
+                    + ",msg:no_error"
                 )
             else:
                 self.send_response("port:" + str(local_port) + ",msg:no_error")
@@ -1178,7 +1278,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if g_server_config_data["version"] == "v0.1":
             verbose("Config version v0.1")
             return self.get_jump_remote_from_config_v01(req_qry)
-        verbose("Unsupported configuration version: %s" % (g_server_config_data["version"],))
+        verbose(
+            "Unsupported configuration version: %s" % (g_server_config_data["version"],)
+        )
         return None
 
     def get_jump_remote_from_config_v01(self, req_qry):
@@ -1235,7 +1337,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
                 return
             req_def = self.get_jump_remote_from_config(req_qry)
             if req_def is None:
-                self.send_response("port:-1,msg:no_matching_group_or_service_in_config_file")
+                self.send_response(
+                    "port:-1,msg:no_matching_group_or_service_in_config_file"
+                )
                 return
         else:
             if "rhost" not in req_qry:
@@ -1287,8 +1391,10 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         if "transient" in req_def["tunneltype"]:
             temptunnel = True
 
-        forward_server, thread_process, error_no = ssh_tunnel_client.start_forward_server(
-            local_port, remote_srvr, temptunnel=temptunnel
+        forward_server, thread_process, error_no = (
+            ssh_tunnel_client.start_forward_server(
+                local_port, remote_srvr, temptunnel=temptunnel
+            )
         )
         if error_no == SSH_NO_ERROR:
             remote_connect_info = ssh_tunnel_client.get_remote_connection_info()
@@ -1378,7 +1484,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         lock = threading.Lock()
         with lock:
             g_open_tunnel_list.append(reverse_tunnel_info)
-        self.send_response("port:" + str(reverse_tunnel_info["remote_port"]) + "msg:no_error")
+        self.send_response(
+            "port:" + str(reverse_tunnel_info["remote_port"]) + "msg:no_error"
+        )
 
         return
 
@@ -1401,11 +1509,15 @@ def parse_arguments(argv):
     try:
         opts, args = getopt.getopt(argv, "hc:p:x:")
     except getopt.GetoptError:
-        print("python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>")
+        print(
+            "python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>"
+        )
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
-            print("python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>")
+            print(
+                "python ssh_tunnel_server.py -c <config file> -p <server port> -x <proxy command>"
+            )
             sys.exit(0)
         elif opt == "-c":
             config_file = arg
@@ -1419,7 +1531,11 @@ def parse_arguments(argv):
 def removeTunnel(dest_host, dest_port):
     global g_open_tunnel_list
     for tnnl in g_open_tunnel_list:
-        if (tnnl.forward_tunnel is True) and (dest_host == tnnl.dest_host) and (dest_port == tnnl.dest_port):
+        if (
+            (tnnl.forward_tunnel is True)
+            and (dest_host == tnnl.dest_host)
+            and (dest_port == tnnl.dest_port)
+        ):
             print("Shutting down: ", dest_host, " port: ", dest_port)
             tnnl.forward_server.shutdown()
             tnnl.forward_server.server_close()

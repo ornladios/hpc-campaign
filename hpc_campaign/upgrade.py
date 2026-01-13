@@ -1,11 +1,12 @@
 import argparse
 import sqlite3
-from datetime import datetime, timedelta
 from .config import ACA_VERSION
 from .utils import SQLExecute, SQLCommit, SQLErrorList
 
 
-def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def _upgrade_to_0_6(
+    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection
+):
     print("Upgrade to 0.6")
     # host
     SQLExecute(cur, "ALTER TABLE host ADD default_protocol TEXT")
@@ -17,9 +18,10 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
         + ", keyid INT, size INT"
         + ", PRIMARY KEY (datasetid, hostid, dirid, archiveid, name))",
     )
-    SQLExecute(cur, 
-        'INSERT INTO replica_new (datasetid, hostid, dirid, name, modtime, deltime, keyid, size)'
-        ' SELECT datasetid, hostid, dirid, name, modtime, deltime, keyid, size FROM replica'
+    SQLExecute(
+        cur,
+        "INSERT INTO replica_new (datasetid, hostid, dirid, name, modtime, deltime, keyid, size)"
+        " SELECT datasetid, hostid, dirid, name, modtime, deltime, keyid, size FROM replica",
     )
     SQLExecute(cur, "UPDATE replica_new SET archiveid = 0")
     SQLExecute(cur, "DROP TABLE replica")
@@ -28,11 +30,12 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     SQLExecute(
         cur,
         "CREATE TABLE archive_new"
-        + "(dirid INT, tarname TEXT, system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))"
+        + "(dirid INT, tarname TEXT, system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))",
     )
-    SQLExecute(cur, 
-        'INSERT INTO archive_new (dirid, system, notes)'
-        ' SELECT dirid, system, notes FROM archive'
+    SQLExecute(
+        cur,
+        "INSERT INTO archive_new (dirid, system, notes)"
+        " SELECT dirid, system, notes FROM archive",
     )
     SQLExecute(cur, 'UPDATE archive_new SET tarname = ""')
     SQLExecute(cur, "DROP TABLE archive")
@@ -52,9 +55,7 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
         print("SQL Errors detected, drop all changes.")
 
 
-UPGRADESTEP = {
-    "0.5": {"new_version": "0.6", "func": _upgrade_to_0_6}
-}
+UPGRADESTEP = {"0.5": {"new_version": "0.6", "func": _upgrade_to_0_6}}
 
 
 def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
@@ -71,6 +72,3 @@ def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Conne
             print("This version cannot be upgraded")
     else:
         print(f"This archive has the latest version already: {ACA_VERSION}")
-
-
- 
