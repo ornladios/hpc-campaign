@@ -101,6 +101,22 @@ packages = [
 module = "h5py"
 ignore_missing_imports = true
 
-[tool.pylint]
+
 [tool.pylint.format]
 max-line-length = 120
+
+[tool.pylint.messages_control]
+# A comma-separated list of message symbols or IDs to disable.
+disable = [
+    "invalid-name",
+    "missing-module-docstring",
+    "missing-function-docstring",
+    "too-many-branches",
+    "duplicate-code",
+]
+
+[tool.pylint.master]
+# Specify a score threshold to be exceeded before program exits with error.
+fail-under = 10.0
+# Add files or directories to ignore
+ignore = ".git"

@@ -2,11 +2,14 @@ import uuid
 from datetime import UTC, datetime
 from getpass import getpass
 from os.path import exists
+import sys
 
-import nacl.encoding
-import nacl.pwhash
-import nacl.secret
-import nacl.utils
+# import nacl.encoding
+import nacl.pwhash  # pylint: disable=E0401
+import nacl.secret  # pylint: disable=E0401
+import nacl.utils  # pylint: disable=E0401
+import nacl.exceptions  # pylint: disable=E0401
+
 import yaml
 
 
@@ -71,11 +74,11 @@ class Key:
         if self.salt:
             doc["salt"] = self.salt.hex()
         doc["date"] = self.date.isoformat()
-        with open(path, "w") as file:
+        with open(path, "w", encoding="utf-8") as file:
             yaml.dump(doc, file, sort_keys=False)
 
     def read(self, path: str):
-        with open(path, "r") as file:
+        with open(path, "r", encoding="utf-8") as file:
             doc = yaml.safe_load(file)
 
         self.note = doc["note"]
@@ -91,20 +94,23 @@ class Key:
 
     def get_decrypted_key(self, pwd: bytes = b"") -> bytes:
         if self.salt:
-            if not pwd:
-                pwd = bytes(getpass("Password: "), "utf-8")
-            kdf = nacl.pwhash.argon2i.kdf
-            pkey = kdf(
-                nacl.secret.SecretBox.KEY_SIZE,
-                pwd,
-                self.salt,
-                opslimit=nacl.pwhash.argon2i.OPSLIMIT_SENSITIVE,
-                memlimit=nacl.pwhash.argon2i.MEMLIMIT_SENSITIVE,
-            )
-            pbox = nacl.secret.SecretBox(pkey)
-            return pbox.decrypt(self.key)
-        else:
-            return self.key
+            try:
+                if not pwd:
+                    pwd = bytes(getpass("Password: "), "utf-8")
+                kdf = nacl.pwhash.argon2i.kdf
+                pkey = kdf(
+                    nacl.secret.SecretBox.KEY_SIZE,
+                    pwd,
+                    self.salt,
+                    opslimit=nacl.pwhash.argon2i.OPSLIMIT_SENSITIVE,
+                    memlimit=nacl.pwhash.argon2i.MEMLIMIT_SENSITIVE,
+                )
+                pbox = nacl.secret.SecretBox(pkey)
+                decrypted_key = pbox.decrypt(self.key)
+            except (EOFError, ValueError, TypeError, nacl.exceptions.CryptoError) as e:
+                raise RuntimeError(f"Couldn't decrypt a key because of: {e}") from None
+            return decrypted_key
+        return self.key
 
     def info(self, do_verify: bool = False) -> bool:
         print(f"created on: {self.date.isoformat()}")
@@ -118,7 +124,7 @@ class Key:
         if do_verify and self.salt:
             try:
                 _ = self.get_decrypted_key()
-            except Exception:
+            except RuntimeError:
                 print("Password is incorrect")
                 return False
             print("Password is correct")
@@ -128,7 +134,7 @@ class Key:
 def read_key(path: str) -> Key:
     if not exists(path):
         print(f"Could not find key file {path}")
-        exit(1)
+        sys.exit(1)
     key = Key()
     key.read(path)
     return key

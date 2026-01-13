@@ -17,12 +17,12 @@ TARTYPES = {
 
 
 def CreateTarIndex(tarfilename: str, indexfile: str | None):
-    tf = tarfile.open(tarfilename)
-    if indexfile is None:
-        indexfile = tarfilename + ".idx"
-    with open(indexfile, "w") as idxf:
-        for ti in tf:
-            idxf.write(f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n')
+    with tarfile.open(tarfilename) as tf:
+        if indexfile is None:
+            indexfile = tarfilename + ".idx"
+        with open(indexfile, "w", encoding="utf-8") as idxf:
+            for ti in tf:
+                idxf.write(f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n')
 
 
 def _SetupArgs(args=None, prog=None):

@@ -4,10 +4,7 @@ import sys
 
 
 def ArgParse():
-    if ("--help" in sys.argv) and (sys.argv[1] == "--help"):
-        add_help = True
-    else:
-        add_help = False
+    add_help = bool("--help" in sys.argv) and (sys.argv[1] == "--help")
     parser = argparse.ArgumentParser(add_help=add_help, prog="hpc_campaign")
 
     parser.add_argument(
@@ -31,8 +28,9 @@ def ArgParse():
 
 def main():
     subcmd, args = ArgParse()
-    prog = "hpc_campaign {0}".format(subcmd)
+    prog = f"hpc_campaign {subcmd}"
 
+    # pylint: disable=pointless-string-statement
     """
     exec(
         'from .{0} import main as cmd'.format(subcmd),
@@ -43,7 +41,7 @@ def main():
     """
 
     # Dynamically import the module using importlib.import_module()
-    aliased_module = importlib.import_module(".{0}".format(subcmd), package="hpc_campaign")
+    aliased_module = importlib.import_module(f".{subcmd}", package="hpc_campaign")
 
     # Run main()
     aliased_module.main(args=args, prog=prog)

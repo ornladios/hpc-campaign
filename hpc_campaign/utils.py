@@ -40,10 +40,10 @@ def input_yes_or_no(msg: str, default_answer: bool = False) -> bool:
     print(msg, end="")
     while True:
         answer = input().lower()
-        if answer == "n" or answer == "no":
+        if answer in ("n", "no"):
             ret = False
             break
-        if answer == "y" or answer == "yes":
+        if answer in ("y", "yes"):
             ret = True
             break
         print("Answer y[es] or n[o]: ", end="")
@@ -76,17 +76,16 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     res = cur
     try:
         res = cur.execute(cmd, parameters)
-    except sqlite3.OperationalError as e:
-        print(f"SQL execute Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
-        SQLErrorList.append(e)
+    except sqlite3.OperationalError as oe:
+        print(f"SQL execute Operational Error: {oe.sqlite_errorcode}  {oe.sqlite_errorname}: {oe}")
+        SQLErrorList.append(oe)
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
         except sqlite3.Error as e:
             print(f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
             raise e
-        else:
-            print("SQL re-execute succeeded")
+        print("SQL re-execute succeeded")
 
     except sqlite3.Error as e:
         print(f"SQL execute Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
@@ -98,18 +97,17 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
 def SQLCommit(con: sqlite3.Connection):
     try:
         con.commit()
-    except sqlite3.OperationalError as e:
-        print(f"SQL commit Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
-        SQLErrorList.append(e)
-        if e.sqlite_errorcode == sqlite3.SQLITE_IOERR_DELETE:
+    except sqlite3.OperationalError as oe:
+        print(f"SQL commit Operational Error: {oe.sqlite_errorcode}  {oe.sqlite_errorname}: {oe}")
+        SQLErrorList.append(oe)
+        if oe.sqlite_errorcode == sqlite3.SQLITE_IOERR_DELETE:
             sleep(1.0)
             try:
                 con.commit()
             except sqlite3.Error as e:
                 print(f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
                 raise e
-            else:
-                print("SQL recommit succeeded")
+            print("SQL recommit succeeded")
     except sqlite3.Error as e:
         print(f"SQL commit Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         raise e

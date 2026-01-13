@@ -4,6 +4,7 @@ import argparse
 import fnmatch
 import glob
 import re
+import sys
 from os.path import isdir
 
 from .config import Config
@@ -74,7 +75,7 @@ def _CheckCampaignStore(args):
             "ERROR: Campaign directory " + args.campaign_store + " does not exist",
             flush=True,
         )
-        exit(1)
+        sys.exit(1)
 
 
 def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
@@ -91,29 +92,29 @@ def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -
     if len(acaList) == 0:
         print("There are no campaign archives in  " + path)
         return result
-    else:
-        startCharPos = len(path) + 1
-        for f in acaList:
-            name = f[startCharPos:]
-            matches = False
-            if len(args.pattern) == 0:
-                matches = True
-            else:
-                for p in args.pattern:
-                    if args.wildcard:
-                        if fnmatch.fnmatch(name, p):
-                            matches = True
-                            break
-                    else:
-                        if re.search(p, name):
-                            matches = True
-                            break
 
-            if matches:
-                if collect:
-                    result.append(f[startCharPos:])
+    startCharPos = len(path) + 1
+    for f in acaList:
+        name = f[startCharPos:]
+        matches = False
+        if len(args.pattern) == 0:
+            matches = True
+        else:
+            for p in args.pattern:
+                if args.wildcard:
+                    if fnmatch.fnmatch(name, p):
+                        matches = True
+                        break
                 else:
-                    print(f[startCharPos:])
+                    if re.search(p, name):
+                        matches = True
+                        break
+
+        if matches:
+            if collect:
+                result.append(f[startCharPos:])
+            else:
+                print(f[startCharPos:])
     return result
 
 

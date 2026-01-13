@@ -2,6 +2,7 @@
 import argparse
 from os import remove
 from os.path import exists
+import sys
 
 from .key import Key
 
@@ -38,24 +39,24 @@ def check_path_for_creation(path: str):
         while True:
             print("Do you want to overwrite Y/N? ", end="")
             answer = input()
-            if answer == "N" or answer == "n":
-                exit(1)
-            if answer == "Y" or answer == "y":
+            if answer in ("N", "n"):
+                sys.exit(1)
+            if answer in ("Y", "y"):
                 break
     else:
         try:
-            with open(path, "wb") as f:
+            with open(path, "wb", encoding="utf8") as f:
                 f.write(b"test")
             remove(path)
-        except Exception:
+        except EnvironmentError:
             print(f"Could not create/write to {path}")
-            exit(1)
+            sys.exit(1)
 
 
 def check_path_for_reading(path: str):
     if not exists(path):
         print(f"Could not find {path}")
-        exit(1)
+        sys.exit(1)
 
 
 def main(args=None, prog=None):
