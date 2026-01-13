@@ -61,7 +61,9 @@ def walk(in_object, out_object, log=False):
             # We copy datatypes and objects with non-understandable attributes
             # identically.
             if log:
-                _report("Copied object with non-understandable attributes", key, in_obj, 0)
+                _report(
+                    "Copied object with non-understandable attributes", key, in_obj, 0
+                )
             in_object.copy(key, out_object)
 
 
@@ -74,7 +76,10 @@ def copy_hdf5_file_without_data(infilename: str, outfilename: str, log: bool = F
     :returns: A tuple(original_size, new_size)
     """
     if __HAVE_H5PY__:
-        with h5py.File(infilename, "r") as in_file, h5py.File(outfilename, "w") as out_file:
+        with (
+            h5py.File(infilename, "r") as in_file,
+            h5py.File(outfilename, "w") as out_file,
+        ):
             walk(in_file, out_file, log=log)
         return stat(infilename).st_size, stat(outfilename).st_size
     else:
