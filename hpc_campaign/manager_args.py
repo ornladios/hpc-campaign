@@ -20,7 +20,7 @@ __accepted_commands__ = [
 ]
 __accepted_commands_str__ = " | ".join(__accepted_commands__)
 
-prog = basename(sys.argv[0])
+prog_default = basename(sys.argv[0])
 
 
 class ArgParser:
@@ -35,7 +35,7 @@ class ArgParser:
 
     """
 
-    def __init__(self, args=sys.argv[1:], prog=prog):
+    def __init__(self, args=sys.argv[1:], prog: str | None = prog_default):
         self.parsers = self.setup_args(prog=prog)
         self.commandlines = self.divide_cmdline(__accepted_commands__, args=args)
         self.args = self.parse_args_main(self.parsers["main"], self.commandlines[0])
@@ -55,8 +55,7 @@ class ArgParser:
                 self.check_args_text(self.args)
             self.prev_command = cmdline[0]
             return True
-        else:
-            return False
+        return False
 
     def divide_cmdline(self, commands: list, args=sys.argv[1:]):
         # Divide argv by commands
@@ -98,10 +97,10 @@ class ArgParser:
                     args.s3_endpoint = hostopt[optID]["endpoint"]
                     if args.s3_bucket is None:
                         print("ERROR: Remote option for an S3 server requires --s3_bucket")
-                        exit(1)
+                        sys.exit(1)
                     if args.s3_datetime is None:
                         print("ERROR: Remote option for an S3 server requires --s3_datetime")
-                        exit(1)
+                        sys.exit(1)
 
         args.CampaignFileName = args.archive
         if args.archive is not None:
@@ -136,14 +135,15 @@ class ArgParser:
     def check_args_dataset(self, args):
         if args.name is not None:
             if len(args.files) > 1:
-                raise Exception("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
+                raise ValueError("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
 
     def check_args_text(self, args):
         if args.name is not None:
             if len(args.files) > 1:
-                raise Exception("Invalid arguments for text: when using --name <name>, only one text file is allowed")
+                raise ValueError("Invalid arguments for text: when using --name <name>, only one text file is allowed")
 
-    def setup_args(self, prog=prog) -> dict:
+    # pylint: disable=too-many-statements
+    def setup_args(self, prog: str | None) -> dict:
         parser = argparse.ArgumentParser(
             prog=prog,
             formatter_class=argparse.RawDescriptionHelpFormatter,

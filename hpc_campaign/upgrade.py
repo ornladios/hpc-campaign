@@ -5,6 +5,7 @@ from .config import ACA_VERSION
 from .utils import SQLCommit, SQLErrorList, SQLExecute
 
 
+# pylint:disable = unused-argument
 def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     print("Upgrade to 0.6")
     # host

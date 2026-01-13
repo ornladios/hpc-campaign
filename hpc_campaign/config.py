@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from dataclasses import dataclass
 from os.path import expanduser
 
 import yaml
@@ -14,6 +15,7 @@ ACA_VERSION = "0.6"
 REDIS_PORT = 6379
 
 
+@dataclass
 class Config:
     """User config and Hosts config file parser"""
 
@@ -25,7 +27,7 @@ class Config:
         path = expanduser("~/.config/hpc-campaign/config.yaml")
         try:
             doc = {}
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
             camp = doc.get("Campaign")
             if isinstance(camp, dict):
@@ -45,7 +47,7 @@ class Config:
         path = expanduser("~/.config/hpc-campaign/hosts.yaml")
         doc = {}
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
         except FileNotFoundError:
             pass  # An empty except block

@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 
+# pylint: disable=too-many-lines
+# pylint: disable=import-error
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+# pylint: disable=unused-argument
+
 import argparse
 import csv
 import glob
+import io
+import re
 import sqlite3
+import sys
 import uuid
 import zlib
 from hashlib import sha1
 from os import chdir, getcwd, remove, stat
 from os.path import basename, exists, isdir, join
 from pathlib import Path
-from re import sub
 from socket import getfqdn
 from time import sleep, time_ns
 
@@ -43,7 +51,7 @@ def CheckCampaignStore(args):
             "ERROR: Campaign directory " + args.campaign_store + " does not exist",
             flush=True,
         )
-        exit(1)
+        sys.exit(1)
 
 
 def CheckLocalCampaignDir(args):
@@ -54,7 +62,7 @@ def CheckLocalCampaignDir(args):
             + "' does not exist. Run this command where the code was executed.",
             flush=True,
         )
-        exit(1)
+        sys.exit(1)
 
 
 def parse_date_to_utc(date, fmt=None):
@@ -126,8 +134,7 @@ def encryptBuffer(args: argparse.Namespace, buf: bytes):
         e = box.encrypt(buf, nonce)
         print("Encoded buffer size: ", len(e))
         return e
-    else:
-        return buf
+    return buf
 
 
 def lastrowid_or_zero(curDS: sqlite3.Cursor) -> int:
@@ -261,7 +268,7 @@ def AddDatasetToArchive(
     name: str,
     cur: sqlite3.Cursor,
     uniqueID: str,
-    format: str,
+    fileformat: str,
     mt: float,
     indent: str = "",
 ) -> int:
@@ -272,7 +279,7 @@ def AddDatasetToArchive(
         "values  (?, ?, ?, ?, ?, ?, ?) "
         "on conflict (name) do update set deltime = ? "
         "returning rowid",
-        (name, uniqueID, mt, 0, format, 0, 0, 0),
+        (name, uniqueID, mt, 0, fileformat, 0, 0, 0),
     )
     datasetID = curDS.fetchone()[0]
     return datasetID
@@ -482,6 +489,7 @@ def ProcessImage(
             remove(thumbfilename)
 
 
+# pylint: disable=too-many-statements
 def ArchiveDataset(
     args: argparse.Namespace,
     cur: sqlite3.Cursor,
@@ -492,16 +500,16 @@ def ArchiveDataset(
     res = SQLExecute(cur, f'select rowid, fileformat from dataset where name = "{args.name}"')
     rows = res.fetchall()
     if len(rows) == 0:
-        raise Exception(f"Dataset not found: {args.name} ")
+        raise LookupError(f"Dataset not found: {args.name} ")
 
     datasetid: int = rows[0][0]
-    format: str = rows[0][1]
+    fileformat: str = rows[0][1]
 
     # Find archive dir
     res = SQLExecute(cur, f"select hostid, name from directory where rowid = {args.dirid}")
     rows = res.fetchall()
     if len(rows) == 0:
-        raise Exception(f"Directory ID not found: {args.dirid} ")
+        raise LookupError(f"Directory ID not found: {args.dirid} ")
 
     hostID: int = rows[0][0]
     dir_name: str = rows[0][1]
@@ -510,17 +518,17 @@ def ArchiveDataset(
         res = SQLExecute(cur, f"select rowid from archive where dirid = {args.dirid}")
         rows = res.fetchall()
         if len(rows) == 0:
-            raise Exception(f"Directory {dir_name} with ID {args.dirid} is not an archival storage directory")
+            raise LookupError(f"Directory {dir_name} with ID {args.dirid} is not an archival storage directory")
         archiveID = rows[0][0]
     else:
         res = SQLExecute(cur, f"select rowid, dirid from archive where rowid = {args.archiveid}")
         rows = res.fetchall()
         if len(rows) == 0:
-            raise Exception(f"Archive ID {args.archiveid} is not found in the archive list")
+            raise LookupError(f"Archive ID {args.archiveid} is not found in the archive list")
         archiveID = args.archiveid
         dirID = rows[0][1]
         if dirID != args.dirid:
-            raise Exception(f"Archive ID {args.archiveid} belongs to dir ID {dirID}, not to {args.dirid}")
+            raise LookupError(f"Archive ID {args.archiveid} belongs to dir ID {dirID}, not to {args.dirid}")
 
     # Check replicas of dataset and see if there is conflict (need --replica option)
     orig_repID: int = args.replica
@@ -542,21 +550,21 @@ def ArchiveDataset(
             else:
                 delrows.append(row)
         if len(live_nonarch_rows) > 1:
-            raise Exception(
+            raise LookupError(
                 f"There are {len(live_nonarch_rows)} non-deleted, not-in-archive, replicas for this dataset. "
                 f"Use --replica to identify which is archived now. Replicas: {[r[0] for r in live_nonarch_rows]}"
             )
-        elif len(live_nonarch_rows) + len(live_arch_rows) == 0:
-            if format == "ADIOS" or format == "HDF5":
-                raise Exception(
-                    f"There are no replicas for a {format} dataset. Cannot archive without "
+        if len(live_nonarch_rows) + len(live_arch_rows) == 0:
+            if fileformat in ("ADIOS", "HDF5"):
+                raise LookupError(
+                    f"There are no replicas for a {fileformat} dataset. Cannot archive without "
                     "access to the embedded metadata files of a replica"
                 )
             if len(delrows) == 1:
                 orig_repID = delrows[0][0]
             else:
-                raise Exception(
-                    f"There are no replicas but {len(delrows)} deleted replicas for this {format} dataset. "
+                raise LookupError(
+                    f"There are no replicas but {len(delrows)} deleted replicas for this {fileformat} dataset. "
                     "Use --replica to identify which deleted replica is archived."
                     f"Deleted replicas: {[r[0] for r in delrows]}"
                 )
@@ -564,7 +572,7 @@ def ArchiveDataset(
             if len(live_nonarch_rows) > 0:
                 orig_repID = live_nonarch_rows[0][0]
             elif len(live_arch_rows) > 1:
-                raise Exception(
+                raise LookupError(
                     f"There are {len(live_arch_rows)} archived replicas for this dataset. "
                     f"Use --replica to identify which is archived now. Replicas: {[r[0] for r in live_arch_rows]}"
                 )
@@ -580,7 +588,7 @@ def ArchiveDataset(
     if datasetid != row[0]:
         res = SQLExecute(cur, f'select name from dataset where rowid = "{row[0]}"')
         wrong_dsname = res.fetchone()[0]
-        raise Exception(f"Replica belongs to dataset {wrong_dsname}, not this dataset")
+        raise LookupError(f"Replica belongs to dataset {wrong_dsname}, not this dataset")
     replicaName: str = row[1]
     mt: int = row[2]
     keyID: int = row[3]
@@ -729,9 +737,9 @@ def GetHostName(args: argparse.Namespace):
     else:
         longhost = getfqdn()
         if longhost.startswith("login"):
-            longhost = sub("^login[0-9]*\\.", "", longhost)
+            longhost = re.sub("^login[0-9]*\\.", "", longhost)
         if longhost.startswith("batch"):
-            longhost = sub("^batch[0-9]*\\.", "", longhost)
+            longhost = re.sub("^batch[0-9]*\\.", "", longhost)
 
     if args.hostname is None:
         shorthost = longhost.split(".")[0]
@@ -797,8 +805,7 @@ def AddKeyID(key_id: str, cur: sqlite3.Cursor) -> int:
             keyID = lastrowid_or_zero(curKey)
             print(f"Inserted key {key_id} into database, rowid = {keyID}")
         return keyID
-    else:
-        return 0  # an invalid row id
+    return 0  # an invalid row id
 
 
 def ArchiveIdxReplica(
@@ -855,23 +862,24 @@ def ArchiveIdx(
     indent: str = "",
 ):
     try:
-        csvfile = open(args.tarfileidx, newline="")
+        # pylint: disable=consider-using-with
+        csvfile = open(args.tarfileidx, newline="", encoding="utf8")
         reader = csv.reader(csvfile)
     except FileNotFoundError:
-        raise Exception(f"File '{args.tarfileidx}' not found.") from None
+        raise FileNotFoundError(f"File '{args.tarfileidx}' not found.") from None
     except Exception as e:
-        raise Exception(f"Error occurred when opening '{args.tarfileidx}': {e}") from e
+        raise EnvironmentError(f"Error occurred when opening '{args.tarfileidx}': {e}") from e
 
     # Find archive dir
     res = SQLExecute(cur, f"select dirid, tarname from archive where rowid = {archiveID}")
     rows = res.fetchall()
     if len(rows) == 0:
-        raise Exception(f"Archive ID not found: {archiveID}")
+        raise LookupError(f"Archive ID not found: {archiveID}")
 
     dirID: int = rows[0][0]
     tarname: str = rows[0][1]
     if not tarname:
-        raise Exception(f"Directory.Archive {dirID}.{archiveID} is not a TAR archive.")
+        raise LookupError(f"Directory.Archive {dirID}.{archiveID} is not a TAR archive.")
 
     line_number = 0
     readnext = True
@@ -893,7 +901,7 @@ def ArchiveIdx(
             )
             continue
         entrytype = int(row[0].strip())
-        if entrytype != 0 and entrytype != 5:  # process only Regular and Directory entries
+        if entrytype not in (0, 5):  # process only Regular and Directory entries
             continue
         offset = int(row[1].strip())
         data_offset = int(row[2].strip())
@@ -924,7 +932,7 @@ def ArchiveIdx(
         )
         dsrow = res.fetchone()
         dsname = dsrow[0]
-        format: str = dsrow[1]
+        fileformat: str = dsrow[1]
         print(f"{indent}  Dataset {replica_datasetID:<5} {dsname}")
 
         entries: dict = {"": [offset, data_offset, size]}
@@ -946,7 +954,7 @@ def ArchiveIdx(
                     f"in the TAR file ({size}). Skip"
                 )
 
-        elif entrytype == TARTYPES["dir"] and format == "ADIOS":
+        elif entrytype == TARTYPES["dir"] and fileformat == "ADIOS":
             # it's a directory for ADIOS datasets, process its entries
             while True:
                 row = next(reader, None)
@@ -981,7 +989,7 @@ def ArchiveIdx(
 
 def AddArchivalStorage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     protocol = args.system.lower()
-    if protocol != "https" and protocol != "http" and protocol != "ftp" and protocol != "s3":
+    if protocol not in ("https", "http", "ftp", "s3"):
         protocol = ""
 
     print(f"Add archival storage host = {args.host}, directory = {args.directory}, archive system {args.system}")
@@ -1182,7 +1190,7 @@ def DeleteDataset(
             f'update dataset set deltime = {CURRENT_TIME} where uuid = "{uniqueid}" returning rowid',
         )
     else:
-        raise Exception("DeleteDataset() requires name or unique id")
+        raise LookupError("DeleteDataset() requires name or unique id")
 
     rowID = curDS.fetchone()[0]
     res = SQLExecute(
@@ -1371,13 +1379,13 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
             + " order by rowid",
         )
         dirs = res2.fetchall()
-        for dir in dirs:
-            if dir[3] == 0 or args.show_deleted:
+        for dirrec in dirs:
+            if dirrec[3] == 0 or args.show_deleted:
                 # check if it's archive dir
                 archive_system = "  "
                 res3 = SQLExecute(
                     cur,
-                    f"select rowid, tarname, system from archive where dirid = {dir[0]} order by rowid",
+                    f"select rowid, tarname, system from archive where dirid = {dirrec[0]} order by rowid",
                 )
                 archs = res3.fetchall()
                 if len(archs) > 0:
@@ -1385,12 +1393,12 @@ def Info(args: argparse.Namespace, cur: sqlite3.Cursor):
                     dirs_archived.append(True)
                 else:
                     dirs_archived.append(False)
-                print(f"     {dir[0]}. {dir[1]}{archive_system}")
-                for idx in range(len(archs)):
-                    if archs[idx][1]:
-                        print(f"       {dir[0]}.{archs[idx][0]} {archs[idx][1]}")
+                print(f"     {dirrec[0]}. {dirrec[1]}{archive_system}")
+                for _idx, item in enumerate(archs):
+                    if item[1]:
+                        print(f"       {dirrec[0]}.{item[0]} {item[1]}")
                     else:
-                        print(f"       {dir[0]}.{archs[idx][0]} .")
+                        print(f"       {dirrec[0]}.{item[0]} .")
     print()
 
     #
@@ -1447,16 +1455,11 @@ def DeleteCampaignFile(args: argparse.Namespace):
         while exists(args.CampaignFileName):
             sleep(0.1)
         return 0
-    else:
-        print(f"ERROR: archive {args.CampaignFileName} does not exist")
-        return 1
+    print(f"ERROR: archive {args.CampaignFileName} does not exist")
+    return 1
 
 
 def CampaignInfo(filename):
-    import io
-    import re
-    import sys
-
     output = io.StringIO()
     sys.stdout = output
     main(
@@ -1501,18 +1504,19 @@ def main(args=None, prog=None):
             # print("Create archive")
             if exists(parser.args.CampaignFileName):
                 print(f"ERROR: archive {parser.args.CampaignFileName} already exist")
-                exit(1)
+                sys.exit(1)
         else:
             # print(f"{parser.args.command} archive")
             if not exists(parser.args.CampaignFileName):
                 print(f"ERROR: archive {parser.args.CampaignFileName} does not exist")
-                exit(1)
+                sys.exit(1)
 
         if not connected:
             con = sqlite3.connect(parser.args.CampaignFileName)
             cur = con.cursor()
             connected = True
 
+        # pylint: disable=no-else-continue
         if parser.args.command == "info":
             Info(parser.args, cur)
             continue
@@ -1520,7 +1524,7 @@ def main(args=None, prog=None):
             Create(parser.args, cur, con)
             connected = False
             continue
-        elif parser.args.command == "dataset" or parser.args.command == "text" or parser.args.command == "image":
+        elif parser.args.command in ("dataset", "text", "image"):
             Update(parser.args, cur, con)
             continue
         elif parser.args.command == "delete":
