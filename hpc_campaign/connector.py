@@ -12,6 +12,7 @@
 # pylint: disable=too-many-nested-blocks
 # pylint: disable=too-many-public-methods
 # pylint: disable=too-many-return-statements
+# pylint: disable=too-many-positional-arguments
 
 import getopt
 import glob

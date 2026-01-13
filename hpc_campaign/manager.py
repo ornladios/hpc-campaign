@@ -5,6 +5,7 @@
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-locals
 # pylint: disable=unused-argument
+# pylint: disable=too-many-positional-arguments
 
 import argparse
 import csv
