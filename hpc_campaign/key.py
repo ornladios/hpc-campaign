@@ -1,15 +1,15 @@
+import sys
 import uuid
 from datetime import UTC, datetime
 from getpass import getpass
 from os.path import exists
-import sys
+
+import nacl.exceptions  # pylint: disable=E0401
 
 # import nacl.encoding
 import nacl.pwhash  # pylint: disable=E0401
 import nacl.secret  # pylint: disable=E0401
 import nacl.utils  # pylint: disable=E0401
-import nacl.exceptions  # pylint: disable=E0401
-
 import yaml
 
 
