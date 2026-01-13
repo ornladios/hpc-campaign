@@ -39,7 +39,7 @@ class Config:
                     if key == "verbose":
                         self.verbose = value
         except FileNotFoundError:
-            pass # An empty except block
+            pass  # An empty except block
 
     def read_host_config(self) -> dict:
         path = expanduser("~/.config/hpc-campaign/hosts.yaml")
@@ -48,5 +48,5 @@ class Config:
             with open(path) as f:
                 doc = yaml.safe_load(f)
         except FileNotFoundError:
-            pass # An empty except block
+            pass  # An empty except block
         return doc
