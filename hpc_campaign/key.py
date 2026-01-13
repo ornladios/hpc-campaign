@@ -1,26 +1,27 @@
-import nacl.encoding
-import nacl.secret
-import nacl.utils
-import nacl.pwhash
 import uuid
-import yaml
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from getpass import getpass
 from os.path import exists
+
+import nacl.encoding
+import nacl.pwhash
+import nacl.secret
+import nacl.utils
+import yaml
 
 
 class Key:
     """Key file for encryption of campaign metadata"""
 
     def __init__(self):
-        self.id = None
-        self.password_encrypted = False
-        self.key = None
-        self.date = datetime.now(UTC)
-        self.note = ""
-        self.salt = None
+        self.id: str = ""
+        self.password_encrypted: bool = False
+        self.key: bytes = b""
+        self.date: datetime = datetime.now(UTC)
+        self.note: str = ""
+        self.salt: bytes = b""
 
-    def generate(self, note: str, pwd: bytes = None):
+    def generate(self, note: str, pwd: bytes = b""):
         self.date = datetime.now(UTC)
         self.note = note
 
@@ -45,7 +46,7 @@ class Key:
             self.key = pbox.encrypt(unencrypted_key, pnonce)
         else:
             self.key = unencrypted_key
-            self.salt = None
+            self.salt = b""
 
     def generate_interactive(self, password_required: bool = False):
         print("Type a note for this key: ", end="")
@@ -59,7 +60,7 @@ class Key:
                 else:
                     break
         else:
-            pwd = None
+            pwd = b""
         self.generate(note, pwd)
 
     def write(self, path: str):
@@ -81,14 +82,14 @@ class Key:
         self.id = doc["id"]
         self.password_encrypted = False
         self.key = bytes.fromhex(doc["key"])
-        self.date = doc["date"]
+        self.date = datetime.fromisoformat(doc["date"])
 
         if "salt" in doc:
             self.salt = bytes.fromhex(doc["salt"])
         else:
-            self.salt = None
+            self.salt = b""
 
-    def get_decrypted_key(self, pwd: bytes = None) -> bytes:
+    def get_decrypted_key(self, pwd: bytes = b"") -> bytes:
         if self.salt:
             if not pwd:
                 pwd = bytes(getpass("Password: "), "utf-8")
@@ -106,7 +107,7 @@ class Key:
             return self.key
 
     def info(self, do_verify: bool = False) -> bool:
-        print(f"created on: {datetime.fromisoformat(self.date)}")
+        print(f"created on: {self.date.isoformat()}")
         print(f"      note: {self.note}")
         print(f"      uuid: {self.id}")
         if self.salt:

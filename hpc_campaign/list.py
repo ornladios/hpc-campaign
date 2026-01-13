@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import fnmatch
 import glob
 import re
-import fnmatch
 from os.path import isdir
 
 from .config import Config
@@ -40,12 +40,8 @@ def _SetupArgs(args=None, prog=None):
         action="store_true",
         default=False,
     )
-    parser.add_argument(
-        "-s", "--campaign_store", help="Path to local campaign store", default=None
-    )
-    parser.add_argument(
-        "-v", "--verbose", help="More verbosity", action="count", default=0
-    )
+    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
+    parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args(args=args)
     return _SetDefaults(args)
 
@@ -81,10 +77,8 @@ def _CheckCampaignStore(args):
         exit(1)
 
 
-def _List(
-    args: argparse.Namespace, collect: bool = True, campaign_store=None
-) -> list[str]:
-    result = []
+def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
+    result: list[str] = []
     path = campaign_store
     if path is None:
         path = args.campaign_store

@@ -27,7 +27,7 @@ jobs:
       run: poetry run ruff format --check
 
     - name: Run mypy
-      run: poetry run mypy hpc_campaign
+      run: poetry run mypy hpc_campaign  --check-untyped-defs
 
     - name: Run pylint
       run: poetry run pylint hpc_campaign

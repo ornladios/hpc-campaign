@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta
-from time import sleep
-from os import walk
-from os.path import join, getsize
 import sqlite3
+from datetime import datetime, timedelta
+from os import walk
+from os.path import getsize, join
+from time import sleep
 
 
 def timestamp_to_datetime(timestamp: int) -> datetime:
@@ -52,7 +52,7 @@ def input_yes_or_no(msg: str, default_answer: bool = False) -> bool:
 
 def get_folder_size(Folderpath: str) -> int:
     size = 0
-    for path, dirs, files in walk(Folderpath):
+    for path, _dirs, files in walk(Folderpath):
         for f in files:
             size += getsize(join(path, f))
     return size
@@ -77,17 +77,13 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     try:
         res = cur.execute(cmd, parameters)
     except sqlite3.OperationalError as e:
-        print(
-            f"SQL execute Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
-        )
+        print(f"SQL execute Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         SQLErrorList.append(e)
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
         except sqlite3.Error as e:
-            print(
-                f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
-            )
+            print(f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
             raise e
         else:
             print("SQL re-execute succeeded")
@@ -95,26 +91,22 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     except sqlite3.Error as e:
         print(f"SQL execute Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         raise e
-    finally:
-        return res
+
+    return res
 
 
 def SQLCommit(con: sqlite3.Connection):
     try:
         con.commit()
     except sqlite3.OperationalError as e:
-        print(
-            f"SQL commit Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
-        )
+        print(f"SQL commit Operational Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
         SQLErrorList.append(e)
         if e.sqlite_errorcode == sqlite3.SQLITE_IOERR_DELETE:
             sleep(1.0)
             try:
                 con.commit()
             except sqlite3.Error as e:
-                print(
-                    f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}"
-                )
+                print(f"SQL recommit error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
                 raise e
             else:
                 print("SQL recommit succeeded")

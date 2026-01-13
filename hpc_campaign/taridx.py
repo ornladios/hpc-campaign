@@ -22,9 +22,7 @@ def CreateTarIndex(tarfilename: str, indexfile: str | None):
         indexfile = tarfilename + ".idx"
     with open(indexfile, "w") as idxf:
         for ti in tf:
-            idxf.write(
-                f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n'
-            )
+            idxf.write(f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n')
 
 
 def _SetupArgs(args=None, prog=None):
@@ -32,16 +30,14 @@ def _SetupArgs(args=None, prog=None):
         prog=prog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""
-Create an index file from a TAR file. It can be used in the 
-'manager <archive> add-archival-storage' command to make automatic 
-replicas of all datasets in the archive and register their offsets 
+Create an index file from a TAR file. It can be used in the
+'manager <archive> add-archival-storage' command to make automatic
+replicas of all datasets in the archive and register their offsets
 and sizes in the TAR file.
 """,
     )
     parser.add_argument("tarfile", help="Name of the TAR file", type=str)
-    parser.add_argument(
-        "idxfile", nargs="?", help="Optional name of the index file", type=str
-    )
+    parser.add_argument("idxfile", nargs="?", help="Optional name of the index file", type=str)
     args = parser.parse_args(args=args)
     #    if args.idxfile is None:
     #        args.idxfile = args.tarfile + ".idx"

@@ -61,9 +61,7 @@ def walk(in_object, out_object, log=False):
             # We copy datatypes and objects with non-understandable attributes
             # identically.
             if log:
-                _report(
-                    "Copied object with non-understandable attributes", key, in_obj, 0
-                )
+                _report("Copied object with non-understandable attributes", key, in_obj, 0)
             in_object.copy(key, out_object)
 
 

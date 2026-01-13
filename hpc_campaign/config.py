@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-import yaml
 from os.path import expanduser
+
+import yaml
 
 ACA_VERSION = "0.6"
 # 0.2 added key encryption (added table key, modfified table bpdataset)
@@ -17,9 +18,9 @@ class Config:
     """User config and Hosts config file parser"""
 
     def __init__(self):
-        self.campaign_store_path = None
-        self.host_name = None
-        self.cache_path = None
+        self.campaign_store_path: str = ""
+        self.host_name: str = ""
+        self.cache_path: str = ""
         self.verbose: int = 0
         path = expanduser("~/.config/hpc-campaign/config.yaml")
         try:
@@ -38,7 +39,7 @@ class Config:
                     if key == "verbose":
                         self.verbose = value
         except FileNotFoundError:
-            None
+            pass # An empty except block
 
     def read_host_config(self) -> dict:
         path = expanduser("~/.config/hpc-campaign/hosts.yaml")
@@ -47,5 +48,5 @@ class Config:
             with open(path) as f:
                 doc = yaml.safe_load(f)
         except FileNotFoundError:
-            None
+            pass # An empty except block
         return doc

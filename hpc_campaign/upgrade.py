@@ -1,12 +1,11 @@
 import argparse
 import sqlite3
+
 from .config import ACA_VERSION
-from .utils import SQLExecute, SQLCommit, SQLErrorList
+from .utils import SQLCommit, SQLErrorList, SQLExecute
 
 
-def _upgrade_to_0_6(
-    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection
-):
+def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     print("Upgrade to 0.6")
     # host
     SQLExecute(cur, "ALTER TABLE host ADD default_protocol TEXT")
@@ -29,13 +28,11 @@ def _upgrade_to_0_6(
     # archive
     SQLExecute(
         cur,
-        "CREATE TABLE archive_new"
-        + "(dirid INT, tarname TEXT, system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))",
+        "CREATE TABLE archive_new" + "(dirid INT, tarname TEXT, system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))",
     )
     SQLExecute(
         cur,
-        "INSERT INTO archive_new (dirid, system, notes)"
-        " SELECT dirid, system, notes FROM archive",
+        "INSERT INTO archive_new (dirid, system, notes) SELECT dirid, system, notes FROM archive",
     )
     SQLExecute(cur, 'UPDATE archive_new SET tarname = ""')
     SQLExecute(cur, "DROP TABLE archive")
@@ -67,7 +64,7 @@ def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Conne
         # vlist = version.split('.')
         v = UPGRADESTEP.get(version)
         if v is not None:
-            v["func"](args, cur, con)
+            v["func"](args, cur, con)  # type: ignore[operator]
         else:
             print("This version cannot be upgraded")
     else:

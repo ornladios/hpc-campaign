@@ -59,19 +59,32 @@ version = { attr = "hpc_campaign.__version__" }
 [project.scripts]
 hpc_campaign="hpc_campaign.__main__:main"
 
-[tool.black] 
-line-length = 120
-
 [tool.pyright]
 include = ["hpc_campaign"]
 exclude = ["**/__pycache__"]
 reportPossiblyUnboundVariable = false
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"] # Enable error, flake8, warning, and isort rules
+ignore = ["E712", "E203", "E302", "F401", "F403", "F405"]
+extend-select = ["B"] # Extend with Bugbear rules
+
+exclude = [
+    "docs/",
+    "build/",
+    "dist/",
+    "dockerfiles/",
+    "hpc_campaign.egg-info/",
+]
+
 [dependency-groups]
 dev = [
     "mypy (>=1.18.2,<2.0.0)",
     "ruff (>=0.14.4,<0.15.0)",
-    "black (>=25.11.0,<26.0.0)",
     "pytest (>=9.0.1,<10.0.0)",
     "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)",
     "types-paramiko (>=4.0.0.20250822,<5.0.0.0)",
@@ -86,3 +99,7 @@ packages = [
 [[tool.mypy.overrides]]
 module = "h5py"
 ignore_missing_imports = true
+
+[tool.pylint]
+[tool.pylint.format]
+max-line-length = 120

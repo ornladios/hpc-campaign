@@ -1,6 +1,6 @@
-import sys
 import argparse
 import importlib
+import sys
 
 
 def ArgParse():
@@ -43,9 +43,7 @@ def main():
     """
 
     # Dynamically import the module using importlib.import_module()
-    aliased_module = importlib.import_module(
-        ".{0}".format(subcmd), package="hpc_campaign"
-    )
+    aliased_module = importlib.import_module(".{0}".format(subcmd), package="hpc_campaign")
 
     # Run main()
     aliased_module.main(args=args, prog=prog)
