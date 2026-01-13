@@ -5,10 +5,8 @@ try:
 except Exception:
     __HAVE_H5PY__ = False
 
-import numpy as np
 import sys
 from os import stat
-from os.path import exists
 
 
 def _report(operation, key, obj, size):

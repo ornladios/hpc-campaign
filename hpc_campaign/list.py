@@ -4,7 +4,7 @@ import argparse
 import glob
 import re
 import fnmatch
-from os.path import exists, isdir, dirname, basename, expanduser
+from os.path import isdir
 
 from .config import Config
 

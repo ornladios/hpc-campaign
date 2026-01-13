@@ -1,6 +1,5 @@
 import argparse
 import sqlite3
-from datetime import datetime, timedelta
 from .config import ACA_VERSION
 from .utils import SQLExecute, SQLCommit, SQLErrorList
 

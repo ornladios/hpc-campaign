@@ -8,7 +8,6 @@ from re import match
 from glob import glob
 from os.path import exists, join, getsize
 from sys import exit
-from time import sleep
 
 import redis.exceptions
 

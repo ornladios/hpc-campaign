@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 from os.path import expanduser
 from datetime import datetime
 
-from .key import Key, read_key
+from .key import Key
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1068,10 +1068,10 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         ):
             self.send_response("port:-1,msg:incorrect_service_request_format")
             return
-        if not req_def["conn"] in SUPPORTED_PROTOCOLS:
+        if req_def["conn"] not in SUPPORTED_PROTOCOLS:
             self.send_response("port:-1,msg:unsupported_protocol")
             return
-        if not req_def["auth"] in SUPPORTED_AUTH_METHODS:
+        if req_def["auth"] not in SUPPORTED_AUTH_METHODS:
             self.send_response("port:-1,msg:unsupported_authication_method")
             return
 
