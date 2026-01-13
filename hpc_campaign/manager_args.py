@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from os.path import exists, basename
+from os.path import basename, exists
 
 from .config import Config
 
@@ -47,9 +47,7 @@ class ArgParser:
             if self.prev_command is not None:
                 self.remove_prev_args(self.prev_command, self.args)
             cmdline = self.commandlines[self.cmdidx]
-            self.args = self.parse_args_command(
-                self.args, self.parsers[cmdline[0]], cmdline
-            )
+            self.args = self.parse_args_command(self.args, self.parsers[cmdline[0]], cmdline)
             self.cmdidx += 1
             if self.args.command == "dataset":
                 self.check_args_dataset(self.args)
@@ -62,7 +60,7 @@ class ArgParser:
 
     def divide_cmdline(self, commands: list, args=sys.argv[1:]):
         # Divide argv by commands
-        split_argv = [[]]
+        split_argv: list[list[str]] = [[]]
         for c in args:
             if c in commands:
                 split_argv.append([c])
@@ -91,10 +89,7 @@ class ArgParser:
         args.s3_endpoint = None
         if args.hostname is None:
             args.hostname = args.user_options.host_name
-        elif (
-            args.hostname in args.host_options
-            and args.hostname != args.user_options.host_name
-        ):
+        elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
             args.remote_data = True
             hostopt = args.host_options.get(args.hostname)
             if hostopt is not None:
@@ -102,14 +97,10 @@ class ArgParser:
                 if hostopt[optID]["protocol"].casefold() == "s3":
                     args.s3_endpoint = hostopt[optID]["endpoint"]
                     if args.s3_bucket is None:
-                        print(
-                            "ERROR: Remote option for an S3 server requires --s3_bucket"
-                        )
+                        print("ERROR: Remote option for an S3 server requires --s3_bucket")
                         exit(1)
                     if args.s3_datetime is None:
-                        print(
-                            "ERROR: Remote option for an S3 server requires --s3_datetime"
-                        )
+                        print("ERROR: Remote option for an S3 server requires --s3_datetime")
                         exit(1)
 
         args.CampaignFileName = args.archive
@@ -121,9 +112,7 @@ class ArgParser:
                 and not args.CampaignFileName.startswith("/")
                 and args.campaign_store is not None
             ):
-                args.CampaignFileName = (
-                    args.campaign_store + "/" + args.CampaignFileName
-                )
+                args.CampaignFileName = args.campaign_store + "/" + args.CampaignFileName
 
         args.LocalCampaignDir = ".adios-campaign/"
 
@@ -136,9 +125,7 @@ class ArgParser:
 
         return args
 
-    def parse_args_command(
-        self, args: argparse.Namespace, parser, argv
-    ) -> argparse.Namespace:
+    def parse_args_command(self, args: argparse.Namespace, parser, argv) -> argparse.Namespace:
         # Parse one command
         # n = argparse.Namespace()
         # setattr(args, argv[0], n)
@@ -149,18 +136,12 @@ class ArgParser:
     def check_args_dataset(self, args):
         if args.name is not None:
             if len(args.files) > 1:
-                raise Exception(
-                    "Invalid arguments for dataset: when using --name <name>, "
-                    "only one dataset is allowed"
-                )
+                raise Exception("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
 
     def check_args_text(self, args):
         if args.name is not None:
             if len(args.files) > 1:
-                raise Exception(
-                    "Invalid arguments for text: when using --name <name>, "
-                    "only one text file is allowed"
-                )
+                raise Exception("Invalid arguments for text: when using --name <name>, only one text file is allowed")
 
     def setup_args(self, prog=prog) -> dict:
         parser = argparse.ArgumentParser(
@@ -176,15 +157,9 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
         )
         parsers = {}
         parsers["main"] = parser
-        parser.add_argument(
-            "--verbose", "-v", help="More verbosity", action="count", default=0
-        )
-        parser.add_argument(
-            "--campaign_store", "-s", help="Path to local campaign store", default=None
-        )
-        parser.add_argument(
-            "--hostname", "-n", help="Host name unique for hosts in a campaign"
-        )
+        parser.add_argument("--verbose", "-v", help="More verbosity", action="count", default=0)
+        parser.add_argument("--campaign_store", "-s", help="Path to local campaign store", default=None)
+        parser.add_argument("--hostname", "-n", help="Host name unique for hosts in a campaign")
         parser.add_argument("--keyfile", "-k", help="Key file to encrypt metadata")
         # parser.add_argument("--s3_bucket", help="Bucket on S3 server", default=None)
         # parser.add_argument(
@@ -197,9 +172,7 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
             help="Campaign archive name or path, with .aca or without",
             default=None,
         )
-        parser.add_argument(
-            "command", nargs="?", help=__accepted_commands_str__, default=None
-        )
+        parser.add_argument("command", nargs="?", help=__accepted_commands_str__, default=None)
 
         # parser for the "create" command
         parser_create = argparse.ArgumentParser(
@@ -215,18 +188,10 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description="""Delete items from a campaign archive file.""",
         )
-        parser_delete.add_argument(
-            "--uuid", nargs="+", metavar="id", help="Remove datasets by UUID"
-        )
-        parser_delete.add_argument(
-            "--name", nargs="+", metavar="str", help="Remove datasets by name"
-        )
-        parser_delete.add_argument(
-            "--replica", nargs="+", metavar="id", help="Remove replicas by ID number"
-        )
-        parser_delete.add_argument(
-            "--campaign", help="Delete entire campaign file", action="store_true"
-        )
+        parser_delete.add_argument("--uuid", nargs="+", metavar="id", help="Remove datasets by UUID")
+        parser_delete.add_argument("--name", nargs="+", metavar="str", help="Remove datasets by name")
+        parser_delete.add_argument("--replica", nargs="+", metavar="id", help="Remove replicas by ID number")
+        parser_delete.add_argument("--campaign", help="Delete entire campaign file", action="store_true")
 
         parsers["delete"] = parser_delete
 
@@ -260,12 +225,8 @@ file:     [encryption key]  size  date  [cheksum]  filename
             help="List files embedded in campaign archive",
             action="store_true",
         )
-        parser_info.add_argument(
-            "-d", "--show-deleted", help="Show deleted entries", action="store_true"
-        )
-        parser_info.add_argument(
-            "-c", "--show-checksum", help="Show checksums of files", action="store_true"
-        )
+        parser_info.add_argument("-d", "--show-deleted", help="Show deleted entries", action="store_true")
+        parser_info.add_argument("-c", "--show-checksum", help="Show checksums of files", action="store_true")
         parsers["info"] = parser_info
 
         # parser for the "dataset" command
@@ -278,9 +239,7 @@ A temporary file is created from HDF5 files so one must have write access to /tm
 """,
         )
         parsers["dataset"] = parser_dataset
-        parser_dataset.add_argument(
-            "files", nargs="+", help="add ADIOS/HDF5 files manually"
-        )
+        parser_dataset.add_argument("files", nargs="+", help="add ADIOS/HDF5 files manually")
         parser_dataset.add_argument(
             "--name",
             "-n",
@@ -305,9 +264,7 @@ so be mindful about the size of the resulting archive. Text is stored compressed
             default=None,
             help="Representation name in the campaign hierarchy",
         )
-        parser_text.add_argument(
-            "--store", "-s", help="Store image in campaign", action="store_true"
-        )
+        parser_text.add_argument("--store", "-s", help="Store image in campaign", action="store_true")
 
         # parser for the "image" command
         parser_image = argparse.ArgumentParser(
@@ -327,9 +284,7 @@ The archive can '--store' directly the image file, or store a --thumbnail with X
             default=None,
             help="Representation name in the campaign hierarchy",
         )
-        parser_image.add_argument(
-            "--store", "-s", help="Store image in campaign", action="store_true"
-        )
+        parser_image.add_argument("--store", "-s", help="Store image in campaign", action="store_true")
         parser_image.add_argument(
             "--thumbnail",
             nargs=2,
@@ -361,21 +316,11 @@ will be pointing to specific offsets in the TAR file.
             help="Name of archival system of this location",
         )
         parser_addarchive.add_argument("host", help="Archival host's name", type=str)
-        parser_addarchive.add_argument(
-            "directory", help="Archival host's directory", type=str
-        )
-        parser_addarchive.add_argument(
-            "tarfilename", nargs="?", help="TAR file in directory"
-        )
-        parser_addarchive.add_argument(
-            "tarfileidx", nargs="?", help="Index for TAR file"
-        )
-        parser_addarchive.add_argument(
-            "--longhostname", metavar="str", help="Optional long host name"
-        )
-        parser_addarchive.add_argument(
-            "--note", metavar="fname", help="Optional notes file"
-        )
+        parser_addarchive.add_argument("directory", help="Archival host's directory", type=str)
+        parser_addarchive.add_argument("tarfilename", nargs="?", help="TAR file in directory")
+        parser_addarchive.add_argument("tarfileidx", nargs="?", help="Index for TAR file")
+        parser_addarchive.add_argument("--longhostname", metavar="str", help="Optional long host name")
+        parser_addarchive.add_argument("--note", metavar="fname", help="Optional notes file")
 
         # parser for the "archived" command
         parser_archive = argparse.ArgumentParser(
@@ -397,9 +342,7 @@ which is the second integer in the listing of directories under an archive direc
         )
         parsers["archived"] = parser_archive
         parser_archive.add_argument("name", help="Name of dataset", type=str)
-        parser_archive.add_argument(
-            "dirid", help="Archival host's directory ID", type=int
-        )
+        parser_archive.add_argument("dirid", help="Archival host's directory ID", type=int)
         parser_archive.add_argument(
             "--archiveid",
             help="Optional archive ID if there are more than one archives in the same directory",
@@ -411,12 +354,8 @@ which is the second integer in the listing of directories under an archive direc
             type=str,
             metavar="str",
         )
-        parser_archive.add_argument(
-            "--replica", help="Replica ID", metavar="id", type=int
-        )
-        parser_archive.add_argument(
-            "--move", help="Delete original replica", action="store_true"
-        )
+        parser_archive.add_argument("--replica", help="Replica ID", metavar="id", type=int)
+        parser_archive.add_argument("--move", help="Delete original replica", action="store_true")
 
         # parser for the "time-series" command
         parser_timeseries = argparse.ArgumentParser(
@@ -430,12 +369,8 @@ datasets to the list of existing datasets, unless --replace is given.
         )
         parsers["time-series"] = parser_timeseries
         parser_timeseries.add_argument("name", help="Name of time series", type=str)
-        parser_timeseries.add_argument(
-            "dataset", nargs="*", help="Datasets in order", type=str
-        )
-        parser_timeseries.add_argument(
-            "--replace", help="Overwrite existing time-series", action="store_true"
-        )
+        parser_timeseries.add_argument("dataset", nargs="*", help="Datasets in order", type=str)
+        parser_timeseries.add_argument("--replace", help="Overwrite existing time-series", action="store_true")
         parser_timeseries.add_argument(
             "--remove",
             help="Remove the series definition (not the datasets)",
