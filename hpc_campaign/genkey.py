@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import sys
 from os import remove
 from os.path import exists
-import sys
 
 from .key import Key
 

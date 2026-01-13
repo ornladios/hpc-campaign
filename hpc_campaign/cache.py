@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import sqlite3
+import sys
 from glob import glob
 from os import listdir, walk
 from os.path import exists, getsize, join
 from re import match
 from shutil import rmtree
-import sys
 from typing import Optional, cast
 
 import redis  # pylint: disable=E0401
