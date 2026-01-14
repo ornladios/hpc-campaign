@@ -26,6 +26,7 @@ jobs:
         poetry export -f requirements.txt -o requirements.txt --without-hashes --with dev
         pip install --no-cache-dir -r requirements.txt && rm requirements.txt
         pip install adios2
+        pip install matplotlib
 
     - name: Run ruff
       run: poetry run ruff check
