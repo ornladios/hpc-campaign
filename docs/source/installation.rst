@@ -50,6 +50,7 @@ Versions
 --------
 
 ACA 0.6 version is compatible with ADIOS 2.11.0
+ACA 0.7 version is compatible with ADIOS 2.11.1
 
 Setup 
 -----

@@ -192,30 +192,53 @@ def AddFileToArchive(
     if len(filename_as_recorded) == 0:
         filename_as_recorded = filename
 
-    SQLExecute(
+    curFile = SQLExecute(
         cur,
-        "insert into file "
-        "(replicaid, name, compression, lenorig, lencompressed, modtime, checksum, data) "
-        "values (?, ?, ?, ?, ?, ?, ?, ?) "
-        "on conflict (replicaid, name) do update "
-        "set compression = ?, lenorig = ?, lencompressed = ?, modtime = ?, checksum = ?, data = ?",
-        (
-            repID,
-            filename_as_recorded,
-            compressed,
-            len_orig,
-            len_compressed,
-            mt,
-            checksum,
-            encrypted_data,
-            compressed,
-            len_orig,
-            len_compressed,
-            mt,
-            checksum,
-            encrypted_data,
-        ),
+        "select file.fileid from file "
+        "join repfiles on file.fileid = repfiles.fileid "
+        "where repfiles.replicaid = ? and file.name = ?",
+        (repID, filename_as_recorded),
     )
+    row = curFile.fetchone()
+    if row is None:
+        curFile = SQLExecute(
+            cur,
+            "insert into file "
+            "(name, compression, lenorig, lencompressed, modtime, checksum, data) "
+            "values (?, ?, ?, ?, ?, ?, ?) "
+            "returning fileid",
+            (
+                filename_as_recorded,
+                compressed,
+                len_orig,
+                len_compressed,
+                mt,
+                checksum,
+                encrypted_data,
+            ),
+        )
+        fileid = curFile.fetchone()[0]
+        SQLExecute(
+            cur,
+            "insert into repfiles (replicaid, fileid) values (?, ?)",
+            (repID, fileid),
+        )
+    else:
+        fileid = row[0]
+        SQLExecute(
+            cur,
+            "update file set compression = ?, lenorig = ?, lencompressed = ?, modtime = ?, checksum = ?, data = ? "
+            "where fileid = ?",
+            (
+                compressed,
+                len_orig,
+                len_compressed,
+                mt,
+                checksum,
+                encrypted_data,
+                fileid,
+            ),
+        )
 
 
 def AddReplicaToArchive(
@@ -634,37 +657,23 @@ def ArchiveDataset(
     # if --move, delete the original replica but assign embedded files to archived replica
     # otherwise, make a copy of all embedded files
     if args.move:
-        SQLExecute(cur, f"update file set replicaid = {repID} where replicaid = {orig_repID}")
+        SQLExecute(cur, f"update repfiles set replicaid = {repID} where replicaid = {orig_repID}")
         DeleteReplica(args, cur, con, orig_repID, False, indent=indent)
     else:
         res = SQLExecute(
             cur,
-            "select name, compression, lenorig, lencompressed, modtime, checksum, data "
-            f"from file where replicaid = {orig_repID}",
+            f"select fileid from repfiles where replicaid = {orig_repID}",
         )
         files = res.fetchall()
         print(f"{indent}Copying {len(files)} files from original replica to archived one")
         for f in files:
             SQLExecute(
                 cur,
-                "insert into file values (?, ?, ?, ?, ?, ?, ?, ?) "
-                "on conflict (replicaid, name) do update set "
-                "compression = ?, lenorig = ?, lencompressed = ?, modtime = ?, checksum = ?, data = ?",
+                "insert into repfiles (replicaid, fileid) values (?, ?) "
+                "on conflict (replicaid, fileid) do nothing",
                 (
                     repID,
                     f[0],
-                    f[1],
-                    f[2],
-                    f[3],
-                    f[4],
-                    f[5],
-                    f[6],
-                    f[1],
-                    f[2],
-                    f[3],
-                    f[4],
-                    f[5],
-                    f[6],
                 ),
             )
 
@@ -1098,9 +1107,12 @@ def Create(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
     SQLExecute(
         cur,
         "create table file"
-        + "(replicaid INT, name TEXT, compression INT, lenorig INT"
-        + ", lencompressed INT, modtime INT, checksum TEXT, data BLOB"
-        + ", PRIMARY KEY (replicaid, name))",
+        + "(fileid INTEGER PRIMARY KEY, name TEXT, compression INT, lenorig INT"
+        + ", lencompressed INT, modtime INT, checksum TEXT, data BLOB)",
+    )
+    SQLExecute(
+        cur,
+        "create table repfiles" + "(replicaid INT, fileid INT, PRIMARY KEY (replicaid, fileid))",
     )
     SQLExecute(
         cur,
@@ -1167,7 +1179,8 @@ def DeleteReplica(
             f"update replica set deltime = {CURRENT_TIME} " + f"where rowid = {repid}",
         )
     if delete_empty_dataset:
-        SQLExecute(cur, f"delete from file where replicaid = {repid}")
+        SQLExecute(cur, f"delete from repfiles where replicaid = {repid}")
+        SQLExecute(cur, "delete from file where fileid not in (select fileid from repfiles)")
         DeleteDatasetIfEmpty(args, cur, con, datasetid, indent=indent + "  ")
 
 
@@ -1287,7 +1300,7 @@ def InfoDataset(
         if dataset[5] == "IMAGE" or dataset[5] == "TEXT":
             res3 = SQLExecute(
                 cur,
-                f"select rowid from file where replicaid = {replicaid} order by rowid",
+                f"select fileid from repfiles where replicaid = {replicaid} order by fileid",
             )
             res = res3.fetchall()
             if len(res) > 0:
@@ -1328,7 +1341,9 @@ def InfoDataset(
 
         res3 = SQLExecute(
             cur,
-            "select name, lenorig, lencompressed, modtime, checksum from file " + f"where replicaid = {replicaid}",
+            "select file.name, file.lenorig, file.lencompressed, file.modtime, file.checksum "
+            "from file join repfiles on file.fileid = repfiles.fileid "
+            f"where repfiles.replicaid = {replicaid} order by file.fileid",
         )
         files = res3.fetchall()
         for file in files:
