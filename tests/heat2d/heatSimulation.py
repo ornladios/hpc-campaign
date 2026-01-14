@@ -30,7 +30,7 @@ class Settings:
         self.ndy = self.convert_to_uint("ny", argv[3])
         self.steps = self.convert_to_uint("steps", argv[4])
         self.iterations = self.convert_to_uint("iterations", argv[5])
-        if (len(argv) == 7):
+        if len(argv) == 7:
             self.engine = argv[6]
         else:
             self.engine = "BP5"

@@ -9,12 +9,8 @@ from adios2 import Adios, Stream  # pylint: disable=import-error
 
 def SetupArgs():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--instream", "-i", help="Name of the input stream", required=True
-    )
-    parser.add_argument(
-        "--outfile", "-o", help="Name of the output file", default="screen"
-    )
+    parser.add_argument("--instream", "-i", help="Name of the input stream", required=True)
+    parser.add_argument("--outfile", "-o", help="Name of the output file", default="screen")
     parser.add_argument("--varname", "-v", help="Name of variable to read", default="T")
     parser.add_argument(
         "--displaysec",
@@ -53,10 +49,10 @@ def Plot2D(data, args, fullshape, step, fontsize):
         plt.pause(displaysec)
     elif args.outfile.endswith(".bp"):
         global writer
-#        print("plot to file, step = ", step)
-#        if step == 0:
-#            writer = Stream(args.outfile, "w")
-#
+        #        print("plot to file, step = ", step)
+        #        if step == 0:
+        #            writer = Stream(args.outfile, "w")
+        #
         writer.begin_step()
         writer.write(args.varname, data, data.shape, [0, 0], data.shape)
         writer.end_step()
@@ -105,8 +101,9 @@ if __name__ == "__main__":
         cur_step = fr.current_step()
         sim_step = fr.read("iteration")
 
-        print(f"Heat Plot step {plot_step:>4} processing simulation output step {cur_step:>4} "
-              f"or iteration {sim_step:>4}")
+        print(
+            f"Heat Plot step {plot_step:>4} processing simulation output step {cur_step:>4} or iteration {sim_step:>4}"
+        )
         if plot_step == 0:
             print(f"{args.varname} shape = {fullshape}")
 
