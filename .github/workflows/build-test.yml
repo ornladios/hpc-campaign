@@ -6,6 +6,7 @@ on:
       - master
     types:
       - opened
+      - synchronize
 
 jobs:
   build:
@@ -24,6 +25,8 @@ jobs:
         pip install --no-cache-dir poetry poetry-plugin-export
         poetry export -f requirements.txt -o requirements.txt --without-hashes --with dev
         pip install --no-cache-dir -r requirements.txt && rm requirements.txt
+        pip install adios2
+        pip install matplotlib
 
     - name: Run ruff
       run: poetry run ruff check
@@ -37,5 +40,25 @@ jobs:
     - name: Run pylint
       run: poetry run pylint hpc_campaign
 
-    - name: Build Docker image
-      run: docker build . -f dockerfiles/Dockerfile
+    - name: Create some data files for testing
+      run: |
+        mkdir -p /tmp/campaign-store
+        mkdir -p /tmp/campaign-cache
+        mkdir -p data
+        python3 tests/heat2d/heatSimulation.py data/heat.bp 10 15 3 1
+        ls -l data/heat.bp 
+        python3 tests/heat2d/heatPlot.py -i data/heat.bp -o data/T
+        ls -l data/T*.png
+
+    - name: Install campaigns and create campaign files from command line
+      run: |
+        pip3 install -e .
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca create
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca dataset data/heat.bp --name heat
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00000.png --name T0 --store
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00001.png --name T1
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00002.png --name T2 --thumbnail 64 64
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca info -rf
+
+    - name: Run pytest on image
+      run: poetry run pytest

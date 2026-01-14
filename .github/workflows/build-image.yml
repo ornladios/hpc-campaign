@@ -6,9 +6,11 @@ on:
       - master
     types:
       - opened
+      - synchronize
 
 jobs:
   build:
+    if: false
     runs-on: ubuntu-latest
 
     steps:

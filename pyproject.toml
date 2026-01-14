@@ -83,13 +83,15 @@ exclude = [
 
 [dependency-groups]
 dev = [
-    "mypy (==1.19.1)",
+    "mypy (>=1.19.1)",
     "ruff (>=0.14.4,<0.15.0)",
     "pytest (>=9.0.1,<10.0.0)",
     "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)",
     "types-paramiko (>=4.0.0.20250822,<5.0.0.0)",
     "types-python-dateutil (>=2.9.0.20251115,<3.0.0.0)",
     "pylint (>=4.0.4,<5.0.0)",
+    "adios2 (>=2.11.0)",
+    "matplotlib (>=3.10.0)",
 ]
 
 [tool.poetry]
@@ -100,7 +102,6 @@ packages = [
 [[tool.mypy.overrides]]
 module = "h5py"
 ignore_missing_imports = true
-
 
 [tool.pylint.format]
 max-line-length = 120
@@ -120,3 +121,6 @@ disable = [
 fail-under = 10.0
 # Add files or directories to ignore
 ignore = ".git"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
