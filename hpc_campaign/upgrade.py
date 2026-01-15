@@ -49,11 +49,96 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     SQLExecute(cur, 'UPDATE info SET version = "0.6"')
     if len(SQLErrorList) == 0:
         SQLCommit(con)
+        SQLExecute(cur, "VACUUM")
     else:
         print("SQL Errors detected, drop all changes.")
 
 
-UPGRADESTEP = {"0.5": {"new_version": "0.6", "func": _upgrade_to_0_6}}
+# pylint: disable=too-many-locals
+def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+    print("Upgrade to 0.7")
+    # file and replica-file relationship
+    SQLExecute(cur, "ALTER TABLE file RENAME TO file_old")
+    SQLExecute(
+        cur,
+        "CREATE TABLE file"
+        + "(fileid INTEGER PRIMARY KEY, name TEXT, compression INT, lenorig INT"
+        + ", lencompressed INT, modtime INT, checksum TEXT, data BLOB)",
+    )
+    SQLExecute(
+        cur,
+        "create table repfiles" + "(replicaid INT, fileid INT, PRIMARY KEY (replicaid, fileid))",
+    )
+    res = SQLExecute(cur, "select rowid, datasetid from replica")
+    replica_datasets = {row[0]: row[1] for row in res.fetchall()}
+    res = SQLExecute(
+        cur,
+        "select rowid, replicaid, name, compression, lenorig, lencompressed, modtime, checksum, data "
+        "from file_old order by rowid",
+    )
+    files = res.fetchall()
+    for f in files:
+        (
+            old_fileid,
+            replicaid,
+            name,
+            compression,
+            lenorig,
+            lencompressed,
+            modtime,
+            checksum,
+            data,
+        ) = f
+        datasetid = replica_datasets.get(replicaid, -1)
+        curFile = SQLExecute(
+            cur,
+            "select file.fileid from file "
+            "join repfiles on file.fileid = repfiles.fileid "
+            "join replica on repfiles.replicaid = replica.rowid "
+            "where replica.datasetid = ? and file.name = ? and file.lenorig = ? "
+            "and file.lencompressed = ? and file.checksum = ? limit 1",
+            (datasetid, name, lenorig, lencompressed, checksum),
+        )
+        row = curFile.fetchone()
+        if row is None:
+            SQLExecute(
+                cur,
+                "insert into file "
+                "(fileid, name, compression, lenorig, lencompressed, modtime, checksum, data) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    old_fileid,
+                    name,
+                    compression,
+                    lenorig,
+                    lencompressed,
+                    modtime,
+                    checksum,
+                    data,
+                ),
+            )
+            fileid = old_fileid
+        else:
+            fileid = row[0]
+        SQLExecute(
+            cur,
+            "insert into repfiles (replicaid, fileid) values (?, ?)",
+            (replicaid, fileid),
+        )
+    SQLExecute(cur, "DROP TABLE file_old")
+    # info: update version
+    SQLExecute(cur, 'UPDATE info SET version = "0.7"')
+    if len(SQLErrorList) == 0:
+        SQLCommit(con)
+        SQLExecute(cur, "VACUUM")
+    else:
+        print("SQL Errors detected, drop all changes.")
+
+
+UPGRADESTEP = {
+    "0.5": {"new_version": "0.6", "func": _upgrade_to_0_6},
+    "0.6": {"new_version": "0.7", "func": _upgrade_to_0_7},
+}
 
 
 def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
