@@ -53,6 +53,7 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     else:
         print("SQL Errors detected, drop all changes.")
 
+
 # pylint: disable=too-many-locals
 def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     print("Upgrade to 0.7")
