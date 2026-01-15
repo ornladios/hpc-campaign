@@ -669,8 +669,7 @@ def ArchiveDataset(
         for f in files:
             SQLExecute(
                 cur,
-                "insert into repfiles (replicaid, fileid) values (?, ?) "
-                "on conflict (replicaid, fileid) do nothing",
+                "insert into repfiles (replicaid, fileid) values (?, ?) on conflict (replicaid, fileid) do nothing",
                 (
                     repID,
                     f[0],
