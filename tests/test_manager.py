@@ -1,10 +1,13 @@
 import argparse
+import logging
 import subprocess
 import sys
 from pathlib import Path
 
 from hpc_campaign.info import format_info, info
 from hpc_campaign.manager import Manager
+
+LOGGER = logging.getLogger(__name__)
 
 repo_root = Path(__file__).resolve().parents[1]
 data_dir = repo_root / "data"
@@ -21,6 +24,7 @@ image_files = [
 ]
 
 info_outputs: dict[str, str] = {}
+
 
 def run_manager_command(args: list[str]) -> subprocess.CompletedProcess:
     command = [
@@ -113,10 +117,12 @@ def test_10_text_api():
 def test_11_info_cli():
     result = run_manager_command([str(cmdline_archive), "info", "-rfdc"])
     info_outputs["cli"] = normalize_info_output(result.stdout)
+    LOGGER.debug(f"test_11_info_cli info_outputs:\n{info_outputs}")
     assert info_outputs["cli"]
 
 
 def test_12_info_api():
+    # run info on cmdline archive so that we can compare the outputs of cli vs api
     info_data = info(
         str(cmdline_archive),
         campaign_store=str(campaign_store),
@@ -126,6 +132,7 @@ def test_12_info_api():
         show_checksum=True,
     )
     api_output = normalize_info_output(format_info(info_data, build_info_args()))
+    LOGGER.debug(f"test_12_info_api info_outputs:\n{info_outputs}")
     assert "cli" in info_outputs
     assert api_output == info_outputs["cli"]
 

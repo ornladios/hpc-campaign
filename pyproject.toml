@@ -123,6 +123,6 @@ fail-under = 10.0
 ignore = ".git"
 
 [tool.pytest]
-log_file = "log.pytest"
+log_file = "pytest.log"
 log_file_level = "DEBUG"
 testpaths = ["tests"]
