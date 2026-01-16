@@ -25,7 +25,7 @@ The easiest way to install HPC Campaign Management is with pip3.
 .. code-block:: console
 
     (.venv) $ pip3 install hpc-campaign
-    (.venv) $ hpc_campaign list
+    (.venv) $ hpc_campaign ls
 
 HPC Campaign Management is just a bunch of Python scripts that can be installed in your Python environment from the repository, 
 
@@ -34,7 +34,7 @@ HPC Campaign Management is just a bunch of Python scripts that can be installed 
     (.venv) $ git clone https://github.com/ornladios/hpc-campaign.git
     (.venv) $ cd hpc-campaign
     (.venv) $ pip3 install -e .
-    (.venv) $ hpc_campaign list
+    (.venv) $ hpc_campaign ls
 
 or can be accessed without installation by setting PYTHONPATH 
 
@@ -43,7 +43,7 @@ or can be accessed without installation by setting PYTHONPATH
     $ git clone https://github.com/ornladios/hpc-campaign.git
     $ cd hpc-campaign
     $ export PYTHONPATH=${PWD}:$PYTHONPATH
-    $ python3 -m hpc_campaign list
+    $ python3 -m hpc_campaign ls
 
 
 Versions
@@ -82,7 +82,7 @@ Use `~/.config/hpc-campaign/config.yaml` to specify these options.
     /lustre/orion/csc143/proj-shared/campaign-store/demoproject:
     frontier_gray-scott_100.aca
 
-    $ hpc_campaign list
+    $ hpc_campaign ls
     demoproject/frontier_gray-scott_100.aca
 
 ~/.config/hpc-campaign/hosts.yaml

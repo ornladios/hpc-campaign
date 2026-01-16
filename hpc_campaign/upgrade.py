@@ -2,54 +2,54 @@ import argparse
 import sqlite3
 
 from .config import ACA_VERSION
-from .utils import SQLCommit, SQLErrorList, SQLExecute
+from .utils import sql_commit, sql_error_list, sql_execute
 
 
 # pylint:disable = unused-argument
 def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     print("Upgrade to 0.6")
     # host
-    SQLExecute(cur, "ALTER TABLE host ADD default_protocol TEXT")
+    sql_execute(cur, "ALTER TABLE host ADD default_protocol TEXT")
     # replica
-    SQLExecute(
+    sql_execute(
         cur,
         "CREATE TABLE replica_new"
         + "(datasetid INT, hostid INT, dirid INT, archiveid INT, name TEXT, modtime INT, deltime INT"
         + ", keyid INT, size INT"
         + ", PRIMARY KEY (datasetid, hostid, dirid, archiveid, name))",
     )
-    SQLExecute(
+    sql_execute(
         cur,
         "INSERT INTO replica_new (datasetid, hostid, dirid, name, modtime, deltime, keyid, size)"
         " SELECT datasetid, hostid, dirid, name, modtime, deltime, keyid, size FROM replica",
     )
-    SQLExecute(cur, "UPDATE replica_new SET archiveid = 0")
-    SQLExecute(cur, "DROP TABLE replica")
-    SQLExecute(cur, "ALTER TABLE replica_new RENAME TO replica")
+    sql_execute(cur, "UPDATE replica_new SET archiveid = 0")
+    sql_execute(cur, "DROP TABLE replica")
+    sql_execute(cur, "ALTER TABLE replica_new RENAME TO replica")
     # archive
-    SQLExecute(
+    sql_execute(
         cur,
         "CREATE TABLE archive_new" + "(dirid INT, tarname TEXT, system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))",
     )
-    SQLExecute(
+    sql_execute(
         cur,
         "INSERT INTO archive_new (dirid, system, notes) SELECT dirid, system, notes FROM archive",
     )
-    SQLExecute(cur, 'UPDATE archive_new SET tarname = ""')
-    SQLExecute(cur, "DROP TABLE archive")
-    SQLExecute(cur, "ALTER TABLE archive_new RENAME TO archive")
+    sql_execute(cur, 'UPDATE archive_new SET tarname = ""')
+    sql_execute(cur, "DROP TABLE archive")
+    sql_execute(cur, "ALTER TABLE archive_new RENAME TO archive")
     # archiveidx
-    SQLExecute(
+    sql_execute(
         cur,
         "create table archiveidx"
         + "(archiveid INT, replicaid INT, filename TEXT, offset INT, offset_data INT, size INT"
         + ", PRIMARY KEY (archiveid, replicaid, filename))",
     )
     # info: update version
-    SQLExecute(cur, 'UPDATE info SET version = "0.6"')
-    if len(SQLErrorList) == 0:
-        SQLCommit(con)
-        SQLExecute(cur, "VACUUM")
+    sql_execute(cur, 'UPDATE info SET version = "0.6"')
+    if len(sql_error_list) == 0:
+        sql_commit(con)
+        sql_execute(cur, "VACUUM")
     else:
         print("SQL Errors detected, drop all changes.")
 
@@ -58,20 +58,20 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
 def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     print("Upgrade to 0.7")
     # file and replica-file relationship
-    SQLExecute(cur, "ALTER TABLE file RENAME TO file_old")
-    SQLExecute(
+    sql_execute(cur, "ALTER TABLE file RENAME TO file_old")
+    sql_execute(
         cur,
         "CREATE TABLE file"
         + "(fileid INTEGER PRIMARY KEY, name TEXT, compression INT, lenorig INT"
         + ", lencompressed INT, modtime INT, checksum TEXT, data BLOB)",
     )
-    SQLExecute(
+    sql_execute(
         cur,
         "create table repfiles" + "(replicaid INT, fileid INT, PRIMARY KEY (replicaid, fileid))",
     )
-    res = SQLExecute(cur, "select rowid, datasetid from replica")
+    res = sql_execute(cur, "select rowid, datasetid from replica")
     replica_datasets = {row[0]: row[1] for row in res.fetchall()}
-    res = SQLExecute(
+    res = sql_execute(
         cur,
         "select rowid, replicaid, name, compression, lenorig, lencompressed, modtime, checksum, data "
         "from file_old order by rowid",
@@ -90,7 +90,7 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
             data,
         ) = f
         datasetid = replica_datasets.get(replicaid, -1)
-        curFile = SQLExecute(
+        cur_file = sql_execute(
             cur,
             "select file.fileid from file "
             "join repfiles on file.fileid = repfiles.fileid "
@@ -99,9 +99,9 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
             "and file.lencompressed = ? and file.checksum = ? limit 1",
             (datasetid, name, lenorig, lencompressed, checksum),
         )
-        row = curFile.fetchone()
+        row = cur_file.fetchone()
         if row is None:
-            SQLExecute(
+            sql_execute(
                 cur,
                 "insert into file "
                 "(fileid, name, compression, lenorig, lencompressed, modtime, checksum, data) "
@@ -120,17 +120,17 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
             fileid = old_fileid
         else:
             fileid = row[0]
-        SQLExecute(
+        sql_execute(
             cur,
             "insert into repfiles (replicaid, fileid) values (?, ?)",
             (replicaid, fileid),
         )
-    SQLExecute(cur, "DROP TABLE file_old")
+    sql_execute(cur, "DROP TABLE file_old")
     # info: update version
-    SQLExecute(cur, 'UPDATE info SET version = "0.7"')
-    if len(SQLErrorList) == 0:
-        SQLCommit(con)
-        SQLExecute(cur, "VACUUM")
+    sql_execute(cur, 'UPDATE info SET version = "0.7"')
+    if len(sql_error_list) == 0:
+        sql_commit(con)
+        sql_execute(cur, "VACUUM")
     else:
         print("SQL Errors detected, drop all changes.")
 
@@ -141,8 +141,8 @@ UPGRADESTEP = {
 }
 
 
-def UpgradeACA(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
-    res = SQLExecute(cur, 'select version from info where id = "ACA"')
+def upgrade_aca(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+    res = sql_execute(cur, 'select version from info where id = "ACA"')
     info = res.fetchone()
     version: str = info[0]
     if version != ACA_VERSION:

@@ -40,22 +40,22 @@ def setup_args(cfg: Config, args=None, prog=None):
     )
     args = parser.parse_args(args=args)
 
-    args.CampaignFileName = args.campaign
+    args.campaign_file_name = args.campaign
     if args.campaign is not None:
         if not args.campaign.endswith(".aca"):
-            args.CampaignFileName += ".aca"
+            args.campaign_file_name += ".aca"
         if (
-            not exists(args.CampaignFileName)
-            and not args.CampaignFileName.startswith("/")
+            not exists(args.campaign_file_name)
+            and not args.campaign_file_name.startswith("/")
             and cfg.campaign_store_path is not None
         ):
-            args.CampaignFileName = cfg.campaign_store_path + "/" + args.CampaignFileName
+            args.campaign_file_name = cfg.campaign_store_path + "/" + args.campaign_file_name
 
     if args.verbose > 1:
         print(f"# Verbosity = {args.verbose}")
         print(f"# Command = {args.command}")
         print(f"# REDIS port = {args.redis_port}")
-        print(f"# Archive = {args.CampaignFileName}")
+        print(f"# Archive = {args.campaign_file_name}")
         print(f"# Auto yes = {args.yes_to_all}")
     return args
 
@@ -162,7 +162,7 @@ def delete_cache_items(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis,
 
 
 def clear_cache(args: argparse.Namespace, cfg: Config, kvdb: redis.Redis):
-    con = sqlite3.connect(args.CampaignFileName)
+    con = sqlite3.connect(args.campaign_file_name)
     cur = con.cursor()
 
     res = cur.execute("select id, name, version, modtime from info")
@@ -209,12 +209,12 @@ def main(args=None, prog=None):
         sys.exit(1)
 
     if args.command == "list":
-        if args.CampaignFileName is not None:
+        if args.campaign_file_name is not None:
             print("Ignoring campaign archive argument")
         list_cache(args, cfg, kvdb)
 
     elif args.command == "clear":
-        if args.CampaignFileName is None:
+        if args.campaign_file_name is None:
             print("Missing campaign archive argument for clearing cache")
             sys.exit(1)
         clear_cache(args, cfg, kvdb)

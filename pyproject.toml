@@ -122,5 +122,7 @@ fail-under = 10.0
 # Add files or directories to ignore
 ignore = ".git"
 
-[tool.pytest.ini_options]
+[tool.pytest]
+log_file = "log.pytest"
+log_file_level = "DEBUG"
 testpaths = ["tests"]

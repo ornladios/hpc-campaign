@@ -20,7 +20,7 @@ import os
 import queue
 import select
 import socket
-import socketserver as SocketServer
+import socketserver as socket_server
 import sys
 import threading
 import time
@@ -187,12 +187,12 @@ def verbose(s):
         print(s)
 
 
-class ForwardServer(SocketServer.ThreadingTCPServer):
+class ForwardServer(socket_server.ThreadingTCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
 
-class Handler(SocketServer.BaseRequestHandler):
+class Handler(socket_server.BaseRequestHandler):
     chain_host: str = ""
     chain_port: int = 0
     ssh_transport: paramiko.Transport
@@ -681,7 +681,7 @@ g_open_tunnel_list: list[SSHTunnelInfo] = []
 g_remote_conn_list: list[SSHConnectRemote] = []
 
 
-class MyTCPHandler(SocketServer.BaseRequestHandler):
+class MyTCPHandler(socket_server.BaseRequestHandler):
     def handle(self):
         # self.server_config_data = g_server_config_data
         req_data = "".join(self.request.recv(2048).decode("UTF-8").split())
@@ -1467,7 +1467,7 @@ def parse_arguments(argv):
     return config_file, server_port, proxy_command
 
 
-def removeTunnel(dest_host, dest_port):
+def remove_tunnel(dest_host, dest_port):
     # pylint: disable=modified-iterating-list
     for tnnl in g_open_tunnel_list:
         if (tnnl.forward_tunnel is True) and (dest_host == tnnl.dest_host) and (dest_port == tnnl.dest_port):
@@ -1484,7 +1484,7 @@ def run_queue():
         print("QUEUE :", dest_host, " port: ", dest_port)
         lock = threading.Lock()
         with lock:
-            removeTunnel(dest_host, dest_port)
+            remove_tunnel(dest_host, dest_port)
 
 
 g_keys: dict = {}
@@ -1492,8 +1492,8 @@ g_keys: dict = {}
 
 def read_keys():
     keys_pattern = os.path.expanduser("~/.config/hpc-campaign/keys/*")
-    keyFileList = glob.glob(keys_pattern)
-    for f in keyFileList:
+    key_file_list = glob.glob(keys_pattern)
+    for f in key_file_list:
         print(f"Loading key {f}")
         key = Key()
         key.read(f)
@@ -1511,7 +1511,7 @@ def read_keys():
     print(g_keys)
 
 
-class ReuseAddrTCPServer(SocketServer.TCPServer):
+class ReuseAddrTCPServer(socket_server.TCPServer):
     allow_reuse_address = True
 
 
@@ -1536,8 +1536,8 @@ def start_server(argv):
     while thread.is_alive() is False:
         time.sleep(THREAD_CHECK_TIME)
 
-    #    SocketServer.TCPServer.allow_reuse_address = True
-    #    with SocketServer.TCPServer((HOST, server_port),MyTCPHandler) as server:
+    #    socket_server.TCPServer.allow_reuse_address = True
+    #    with socket_server.TCPServer((HOST, server_port),MyTCPHandler) as server:
     with ReuseAddrTCPServer((HOST, server_port), MyTCPHandler) as server:
         print("SSH Tunnel Server: ", HOST, server_port)
         if g_proxy_command:

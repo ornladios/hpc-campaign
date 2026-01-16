@@ -3,7 +3,7 @@ import importlib
 import sys
 
 
-def ArgParse():
+def arg_parse():
     add_help = bool("--help" in sys.argv) and (sys.argv[1] == "--help")
     parser = argparse.ArgumentParser(add_help=add_help, prog="hpc_campaign")
 
@@ -15,7 +15,7 @@ def ArgParse():
             "connector",
             "genkey",
             "hdf5_metadata",
-            "list",
+            "ls",
             "manager",
             "taridx",
         ],
@@ -27,7 +27,7 @@ def ArgParse():
 
 
 def main():
-    subcmd, args = ArgParse()
+    subcmd, args = arg_parse()
     prog = f"hpc_campaign {subcmd}"
 
     # pylint: disable=pointless-string-statement

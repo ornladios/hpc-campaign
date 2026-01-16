@@ -50,9 +50,9 @@ def input_yes_or_no(msg: str, default_answer: bool = False) -> bool:
     return ret
 
 
-def get_folder_size(Folderpath: str) -> int:
+def get_folder_size(folder_path: str) -> int:
     size = 0
-    for path, _dirs, files in walk(Folderpath):
+    for path, _dirs, files in walk(folder_path):
         for f in files:
             size += getsize(join(path, f))
     return size
@@ -69,16 +69,16 @@ def sizeof_fmt(num: int, suffix="B") -> str:
     return f"{n:.1f} Yi{suffix}"
 
 
-SQLErrorList = []
+sql_error_list = []
 
 
-def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
+def sql_execute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     res = cur
     try:
         res = cur.execute(cmd, parameters)
     except sqlite3.OperationalError as oe:
         print(f"SQL execute Operational Error: {oe.sqlite_errorcode}  {oe.sqlite_errorname}: {oe}")
-        SQLErrorList.append(oe)
+        sql_error_list.append(oe)
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
@@ -94,12 +94,12 @@ def SQLExecute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
     return res
 
 
-def SQLCommit(con: sqlite3.Connection):
+def sql_commit(con: sqlite3.Connection):
     try:
         con.commit()
     except sqlite3.OperationalError as oe:
         print(f"SQL commit Operational Error: {oe.sqlite_errorcode}  {oe.sqlite_errorname}: {oe}")
-        SQLErrorList.append(oe)
+        sql_error_list.append(oe)
         if oe.sqlite_errorcode == sqlite3.SQLITE_IOERR_DELETE:
             sleep(1.0)
             try:

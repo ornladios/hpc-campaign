@@ -83,7 +83,7 @@ def copy_hdf5_file_without_data(infilename: str, outfilename: str, log: bool = F
     return 0, 0
 
 
-def IsHDF5Dataset(dataset):
+def is_hdf5_dataset(dataset):
     it_is = False
     if __HAVE_H5PY__:
         try:

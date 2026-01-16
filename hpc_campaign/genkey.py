@@ -45,7 +45,7 @@ def check_path_for_creation(path: str):
                 break
     else:
         try:
-            with open(path, "wb", encoding="utf8") as f:
+            with open(path, "wb") as f:
                 f.write(b"test")
             remove(path)
         except EnvironmentError:
