@@ -16,7 +16,7 @@ TARTYPES = {
 }
 
 
-def CreateTarIndex(tarfilename: str, indexfile: str | None):
+def create_tar_index(tarfilename: str, indexfile: str | None):
     with tarfile.open(tarfilename) as tf:
         if indexfile is None:
             indexfile = tarfilename + ".idx"
@@ -25,7 +25,7 @@ def CreateTarIndex(tarfilename: str, indexfile: str | None):
                 idxf.write(f'{int(ti.type)},{ti.offset},{ti.offset_data},{ti.size},"{ti.name}"\n')
 
 
-def _SetupArgs(args=None, prog=None):
+def _setup_args(args=None, prog=None):
     parser = argparse.ArgumentParser(
         prog=prog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -45,5 +45,5 @@ and sizes in the TAR file.
 
 
 def main(args=None, prog=None):
-    args = _SetupArgs(args=args, prog=prog)
-    CreateTarIndex(args.tarfile, args.idxfile)
+    args = _setup_args(args=args, prog=prog)
+    create_tar_index(args.tarfile, args.idxfile)

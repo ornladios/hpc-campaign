@@ -10,7 +10,7 @@ from os.path import isdir
 from .config import Config
 
 
-def List(*patterns, wildcard: bool = False, campaign_store=None):
+def ls(*patterns, wildcard: bool = False, campaign_store=None):
     args = argparse.Namespace()
     if wildcard:
         args.wildcard = True
@@ -21,12 +21,12 @@ def List(*patterns, wildcard: bool = False, campaign_store=None):
         args.pattern.append(p)
     args.verbose = 0
     args.campaign_store = None
-    args = _SetDefaults(args)
-    _CheckCampaignStore(args)
-    return _List(args, collect=True, campaign_store=campaign_store)
+    args = _set_defaults(args)
+    _check_campaign_store(args)
+    return _list(args, collect=True, campaign_store=campaign_store)
 
 
-def _SetupArgs(args=None, prog=None):
+def _setup_args(args=None, prog=None):
     parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument(
         "pattern",
@@ -44,10 +44,10 @@ def _SetupArgs(args=None, prog=None):
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args(args=args)
-    return _SetDefaults(args)
+    return _set_defaults(args)
 
 
-def _SetDefaults(args: argparse.Namespace):
+def _set_defaults(args: argparse.Namespace):
     # default values
     args.user_options = Config()
     args.host_options = args.user_options.read_host_config()
@@ -69,7 +69,7 @@ def _SetDefaults(args: argparse.Namespace):
     return args
 
 
-def _CheckCampaignStore(args):
+def _check_campaign_store(args):
     if args.campaign_store is not None and not isdir(args.campaign_store):
         print(
             "ERROR: Campaign directory " + args.campaign_store + " does not exist",
@@ -78,7 +78,7 @@ def _CheckCampaignStore(args):
         sys.exit(1)
 
 
-def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
+def _list(args: argparse.Namespace, collect: bool = True, campaign_store=None) -> list[str]:
     result: list[str] = []
     path = campaign_store
     if path is None:
@@ -88,14 +88,14 @@ def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -
         return result
 
     # List the local campaign store
-    acaList = glob.glob(path + "/**/*.aca", recursive=True)
-    if len(acaList) == 0:
+    aca_list = glob.glob(path + "/**/*.aca", recursive=True)
+    if len(aca_list) == 0:
         print("There are no campaign archives in  " + path)
         return result
 
-    startCharPos = len(path) + 1
-    for f in acaList:
-        name = f[startCharPos:]
+    start_char_pos = len(path) + 1
+    for f in aca_list:
+        name = f[start_char_pos:]
         matches = False
         if len(args.pattern) == 0:
             matches = True
@@ -112,16 +112,16 @@ def _List(args: argparse.Namespace, collect: bool = True, campaign_store=None) -
 
         if matches:
             if collect:
-                result.append(f[startCharPos:])
+                result.append(f[start_char_pos:])
             else:
-                print(f[startCharPos:])
+                print(f[start_char_pos:])
     return result
 
 
 def main(args=None, prog=None):
-    args = _SetupArgs(args=args, prog=prog)
-    _CheckCampaignStore(args)
-    _List(args, collect=False)
+    args = _setup_args(args=args, prog=prog)
+    _check_campaign_store(args)
+    _list(args, collect=False)
 
 
 if __name__ == "__main__":

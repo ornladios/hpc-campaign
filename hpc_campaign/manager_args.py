@@ -92,9 +92,9 @@ class ArgParser:
             args.remote_data = True
             hostopt = args.host_options.get(args.hostname)
             if hostopt is not None:
-                optID = next(iter(hostopt))
-                if hostopt[optID]["protocol"].casefold() == "s3":
-                    args.s3_endpoint = hostopt[optID]["endpoint"]
+                opt_id = next(iter(hostopt))
+                if hostopt[opt_id]["protocol"].casefold() == "s3":
+                    args.s3_endpoint = hostopt[opt_id]["endpoint"]
                     if args.s3_bucket is None:
                         print("ERROR: Remote option for an S3 server requires --s3_bucket")
                         sys.exit(1)
@@ -102,22 +102,22 @@ class ArgParser:
                         print("ERROR: Remote option for an S3 server requires --s3_datetime")
                         sys.exit(1)
 
-        args.CampaignFileName = args.archive
+        args.campaign_file_name = args.archive
         if args.archive is not None:
             if not args.archive.endswith(".aca"):
-                args.CampaignFileName += ".aca"
+                args.campaign_file_name += ".aca"
             if (
-                not exists(args.CampaignFileName)
-                and not args.CampaignFileName.startswith("/")
+                not exists(args.campaign_file_name)
+                and not args.campaign_file_name.startswith("/")
                 and args.campaign_store is not None
             ):
-                args.CampaignFileName = args.campaign_store + "/" + args.CampaignFileName
+                args.campaign_file_name = args.campaign_store + "/" + args.campaign_file_name
 
-        args.LocalCampaignDir = ".adios-campaign/"
+        args.local_campaign_dir = ".adios-campaign/"
 
         if args.verbose > 0:
             print(f"# Verbosity = {args.verbose}")
-            print(f"# Campaign File Name = {args.CampaignFileName}")
+            print(f"# Campaign File Name = {args.campaign_file_name}")
             print(f"# Campaign Store = {args.campaign_store}")
             print(f"# Host name = {args.hostname}")
             print(f"# Key file = {args.keyfile}")
