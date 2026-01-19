@@ -1,10 +1,7 @@
 import argparse
 import sqlite3
-import sys
 from dataclasses import dataclass, field
-from os.path import exists, isdir
 
-from .config import Config
 from .utils import sizeof_fmt, sql_execute, timestamp_to_str
 
 
@@ -456,76 +453,3 @@ def print_info(info_data: InfoResult, args: argparse.Namespace):
     output_text = format_info(info_data, args)
     if output_text:
         print(output_text)
-
-
-def _resolve_campaign_file_name(archive: str, campaign_store: str | None) -> str:
-    if campaign_store is None:
-        user_options = Config()
-        campaign_store = user_options.campaign_store_path
-    if campaign_store is not None:
-        while campaign_store.endswith("/"):
-            campaign_store = campaign_store[:-1]
-        if not isdir(campaign_store):
-            print(
-                "ERROR: Campaign directory " + campaign_store + " does not exist",
-                flush=True,
-            )
-            sys.exit(1)
-
-    campaign_file_name = archive
-    if not campaign_file_name.endswith(".aca"):
-        campaign_file_name += ".aca"
-    if not exists(campaign_file_name) and not campaign_file_name.startswith("/") and campaign_store is not None:
-        campaign_file_name = campaign_store + "/" + campaign_file_name
-    return campaign_file_name
-
-
-def info(  # pylint: disable=too-many-arguments,too-many-positional-arguments,unused-argument
-    args_or_archive,
-    cur: sqlite3.Cursor | None = None,
-    list_replicas: bool = False,
-    list_files: bool = False,
-    show_deleted: bool = False,
-    show_checksum: bool = False,
-    hostname: str | None = None,
-    campaign_store: str | None = None,
-    keyfile: str | None = None,
-) -> InfoResult:
-    if isinstance(args_or_archive, argparse.Namespace):
-        if cur is None:
-            raise ValueError("info requires a cursor when args are provided")
-        return collect_info(args_or_archive, cur)
-    campaign_file_name = _resolve_campaign_file_name(str(args_or_archive), campaign_store)
-    if not exists(campaign_file_name):
-        print(f"ERROR: archive {campaign_file_name} does not exist")
-        sys.exit(1)
-    args = argparse.Namespace(
-        list_replicas=list_replicas,
-        list_files=list_files,
-        show_deleted=show_deleted,
-        show_checksum=show_checksum,
-    )
-    con = sqlite3.connect(campaign_file_name)
-    cur = con.cursor()
-    info_data = collect_info(args, cur)
-    cur.close()
-    con.close()
-    return info_data
-
-
-def campaign_info(filename):
-    info_data = info(filename)
-    datasets = []
-    for ts_info in info_data.time_series:
-        datasets.extend(ts_info.datasets)
-    datasets.extend(info_data.datasets)
-    results = []
-    for dataset_info in datasets:
-        results.append(
-            {
-                "uuid": dataset_info.uuid,
-                "type": dataset_info.file_format,
-                "path": dataset_info.name,
-            }
-        )
-    return results

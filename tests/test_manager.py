@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from hpc_campaign.info import format_info, info
+from hpc_campaign.info import format_info
 from hpc_campaign.manager import Manager
 
 LOGGER = logging.getLogger(__name__)
@@ -123,9 +123,8 @@ def test_11_info_cli():
 
 def test_12_info_api():
     # run info on cmdline archive so that we can compare the outputs of cli vs api
-    info_data = info(
-        str(cmdline_archive),
-        campaign_store=str(campaign_store),
+    manager = Manager(archive=str(cmdline_archive), campaign_store=str(campaign_store))
+    info_data = manager.info(
         list_replicas=True,
         list_files=True,
         show_deleted=True,
