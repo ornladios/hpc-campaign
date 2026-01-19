@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from hpc_campaign.info import format_info, info
+from hpc_campaign.info import format_info
 from hpc_campaign.manager import Manager
 
 repo_root = Path(__file__).resolve().parents[1]
@@ -43,11 +43,7 @@ def main():
     manager.add_image(str(image_files[2]), name="T2", thumbnail=[64, 64])
     manager.add_text(str(readme_file), name="readme", store=True)
 
-    # info_data = manager.info()
-
-    info_data = info(
-        str(api_archive),
-        campaign_store=str(campaign_store),
+    info_data = manager.info(
         list_replicas=True,
         list_files=True,
         show_deleted=True,
