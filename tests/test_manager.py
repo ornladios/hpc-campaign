@@ -5,14 +5,16 @@ import sys
 from pathlib import Path
 
 from hpc_campaign.info import format_info
+from hpc_campaign.ls import ls
 from hpc_campaign.manager import Manager
+from hpc_campaign.rm import rm
 
 LOGGER = logging.getLogger(__name__)
 
 repo_root = Path(__file__).resolve().parents[1]
-data_dir = repo_root / "data"
 campaign_store = repo_root
 
+data_dir = Path("data")
 cmdline_archive = data_dir / "test_cmdline.aca"
 api_archive = data_dir / "test_api.aca"
 heat_dataset = data_dir / "heat.bp"
@@ -32,6 +34,19 @@ def run_manager_command(args: list[str]) -> subprocess.CompletedProcess:
         "-m",
         "hpc_campaign",
         "manager",
+        "--campaign_store",
+        str(campaign_store),
+    ]
+    command.extend([str(entry) for entry in args])
+    return subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def run_command(cmd: str, args: list[str]) -> subprocess.CompletedProcess:
+    command = [
+        sys.executable,
+        "-m",
+        "hpc_campaign",
+        cmd,
         "--campaign_store",
         str(campaign_store),
     ]
@@ -127,14 +142,22 @@ def test_12_info_api():
     assert api_output == info_outputs["cli"]
 
 
-# missing test: delete aca
-# def test_13_delete_cli():
-#    run_manager_command([str(cmdline_archive), "delete", "--campaign"])
-#    assert not cmdline_archive.exists()
+def test_20_ls_cli():
+    res = run_command("ls", [str(cmdline_archive)])
+    res.check_returncode()
+    assert res.stdout == str(cmdline_archive) + "\n"
 
 
-# def test_14_delete_api():
-#    manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
-#    result = manager.delete_campaign_file()
-#    assert result == 0
-#    assert not api_archive.exists()
+def test_21_ls_api():
+    result = ls(str(api_archive), campaign_store=str(campaign_store))
+    assert len(result) == 1
+    assert result[0] == str(api_archive)
+
+
+def test_30_delete_cli():
+    run_command("rm", [str(cmdline_archive), "--force"])
+    assert not cmdline_archive.exists()
+
+
+def test_31_delete_api():
+    rm(str(api_archive), campaign_store=str(campaign_store), force=True)

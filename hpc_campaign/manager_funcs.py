@@ -39,18 +39,6 @@ from .utils import (
 CURRENT_TIME = time_ns()
 
 
-def check_campaign_store(campaign_store: str):
-    if campaign_store and not isdir(campaign_store):
-        raise LookupError(f"Campaign directory {campaign_store} does not exist")
-
-
-def check_local_campaign_dir(local_campaign_dir: str):
-    if local_campaign_dir and not isdir(local_campaign_dir):
-        raise LookupError(
-            f"Shot campaign data {local_campaign_dir} does not exist. Run this command where the code was executed."
-        )
-
-
 def parse_date_to_utc(date, fmt=None):
     if fmt is None:
         fmt = "%Y-%m-%d %H:%M:%S %z"  # Defaults to : 2022-08-31 07:47:30 -0000
@@ -69,7 +57,7 @@ def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     if not args.campaign_store:
         args.campaign_store = args.user_options.campaign_store_path
 
-    if not args.campaign_store:
+    if args.campaign_store:
         while args.campaign_store[-1] == "/":
             args.campaign_store = args.campaign_store[:-1]
 
@@ -95,11 +83,7 @@ def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     if args.archive is not None:
         if not args.archive.endswith(".aca"):
             args.campaign_file_name += ".aca"
-        if (
-            not exists(args.campaign_file_name)
-            and not args.campaign_file_name.startswith("/")
-            and args.campaign_store is not None
-        ):
+        if not exists(args.campaign_file_name) and not args.campaign_file_name.startswith("/") and args.campaign_store:
             args.campaign_file_name = args.campaign_store + "/" + args.campaign_file_name
 
     args.local_campaign_dir = ".adios-campaign/"

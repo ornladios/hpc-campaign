@@ -9,10 +9,9 @@
 
 import argparse
 import sqlite3
-from os import remove
 from os.path import exists
 from pathlib import Path
-from time import sleep, time_ns
+from time import time_ns
 
 from .info import InfoResult, collect_info, print_info
 from .key import read_key
@@ -22,7 +21,6 @@ from .manager_funcs import (
     add_time_series,
     archive_dataset,
     check_archival_storage_system_name,
-    check_campaign_store,
     create_tables,
     delete_dataset,
     delete_replica,
@@ -32,6 +30,7 @@ from .manager_funcs import (
 )
 from .upgrade import upgrade_aca
 from .utils import (
+    check_campaign_store,
     sql_commit,
     sql_error_list,
 )
@@ -72,7 +71,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         self.args.keyfile = keyfile
         self.args = set_default_args(self.args)
         self._apply_encryption_key()
-        check_campaign_store(self.args.campaign_store)
+        check_campaign_store(self.args.campaign_store, False)
         self.con: sqlite3.Connection
         self.cur: sqlite3.Cursor
         self.connected = False
@@ -286,17 +285,6 @@ class Manager:  # pylint: disable=too-many-public-methods
         if isinstance(files, (str, Path)):
             return [str(files)]
         return [str(entry) for entry in files]
-
-
-def delete_campaign_file(args: argparse.Namespace):
-    if exists(args.campaign_file_name):
-        print(f"Delete campaign archive {args.campaign_file_name}")
-        remove(args.campaign_file_name)
-        while exists(args.campaign_file_name):
-            sleep(0.1)
-        return 0
-    print(f"ERROR: archive {args.campaign_file_name} does not exist")
-    return 1
 
 
 def main(args=None, prog=None):
