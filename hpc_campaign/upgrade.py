@@ -6,7 +6,7 @@ from .utils import sql_commit, sql_error_list, sql_execute
 
 
 # pylint:disable = unused-argument
-def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
     print("Upgrade to 0.6")
     # host
     sql_execute(cur, "ALTER TABLE host ADD default_protocol TEXT")
@@ -50,12 +50,14 @@ def _upgrade_to_0_6(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     if len(sql_error_list) == 0:
         sql_commit(con)
         sql_execute(cur, "VACUUM")
-    else:
-        print("SQL Errors detected, drop all changes.")
+        return "0.6"
+
+    print("SQL Errors detected, drop all changes.")
+    return "0.5"
 
 
 # pylint: disable=too-many-locals
-def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
     print("Upgrade to 0.7")
     # file and replica-file relationship
     sql_execute(cur, "ALTER TABLE file RENAME TO file_old")
@@ -131,8 +133,10 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     if len(sql_error_list) == 0:
         sql_commit(con)
         sql_execute(cur, "VACUUM")
-    else:
-        print("SQL Errors detected, drop all changes.")
+        return "0.7"
+
+    print("SQL Errors detected, drop all changes.")
+    return "0.6"
 
 
 UPGRADESTEP = {
@@ -141,17 +145,19 @@ UPGRADESTEP = {
 }
 
 
-def upgrade_aca(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def upgrade_aca(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
     res = sql_execute(cur, 'select version from info where id = "ACA"')
     info = res.fetchone()
     version: str = info[0]
+    new_version = version
     if version != ACA_VERSION:
         print(f"Current version is {version}")
         # vlist = version.split('.')
         v = UPGRADESTEP.get(version)
         if v is not None:
-            v["func"](args, cur, con)  # type: ignore[operator]
+            new_version = v["func"](args, cur, con)  # type: ignore[operator]
         else:
             print("This version cannot be upgraded")
     else:
         print(f"This archive has the latest version already: {ACA_VERSION}")
+    return new_version

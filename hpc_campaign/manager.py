@@ -9,6 +9,7 @@
 
 import argparse
 import sqlite3
+import sys
 from os.path import exists
 from pathlib import Path
 from time import time_ns
@@ -231,7 +232,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         tarfileidx: str = "",
         longhostname: str = "",
         note: str = "",
-    ):
+    ) -> tuple[int, int, int]:
         check_archival_storage_system_name(system)
         cmd_args = self._build_command_args(
             "archival_storage",
@@ -247,13 +248,14 @@ class Manager:  # pylint: disable=too-many-public-methods
         )
         if not self.connected:
             self.open(create=True, truncate=False)
-        add_archival_storage(cmd_args, self.cur, self.con)
+        host_id, dir_id, archive_id = add_archival_storage(cmd_args, self.cur, self.con)
+        return host_id, dir_id, archive_id
 
-    def archive_dataset(
+    def archived_replica(
         self, name: str, dirid: int, archiveid: int = 0, newpath: str = "", replica: int = 0, move: bool = False
     ):
         cmd_args = self._build_command_args(
-            "archived",
+            "archived_replica",
             {
                 "name": name,
                 "dirid": dirid,
@@ -276,10 +278,11 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         add_time_series(cmd_args, self.cur, self.con)
 
-    def upgrade(self):
+    def upgrade(self) -> str:
         if not self.connected:
             self.open(create=True, truncate=False)
-        upgrade_aca(self.args, self.cur, self.con)
+        new_version = upgrade_aca(self.args, self.cur, self.con)
+        return new_version
 
     def normalize_files(self, files: list[str | Path] | str | Path) -> list[str]:
         if isinstance(files, (str, Path)):
@@ -287,6 +290,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         return [str(entry) for entry in files]
 
 
+# pylint:disable = too-many-statements
 def main(args=None, prog=None):
     parser = ArgParser(args=args, prog=prog)
     manager = Manager(
@@ -303,8 +307,15 @@ def main(args=None, prog=None):
         # print(parser.args)
         # print("--------------------------")
         n_cmd += 1
+        create_allowed = True
+        if parser.args.command in ("info", "add-archival-storage", "archived-replica", "time-series", "upgrade"):
+            create_allowed = False
         if n_cmd == 1:
-            manager.open(create=True, truncate=parser.args.truncate)
+            try:
+                manager.open(create=create_allowed, truncate=parser.args.truncate)
+            except FileNotFoundError as e:
+                print(f"ERROR: {e}")
+                sys.exit(1)
 
         if parser.args.command == "info":
             info_data = manager.info(
@@ -328,7 +339,7 @@ def main(args=None, prog=None):
                 for rep in parser.args.replica:
                     manager.delete_replica(int(rep))
         elif parser.args.command == "add-archival-storage":
-            manager.add_archival_storage(
+            host_id, dir_id, archive_id = manager.add_archival_storage(
                 parser.args.system,
                 parser.args.host,
                 parser.args.directory,
@@ -337,8 +348,12 @@ def main(args=None, prog=None):
                 parser.args.longhostname,
                 parser.args.note,
             )
-        elif parser.args.command == "archived":
-            manager.archive_dataset(
+            if archive_id > 0:
+                print(f"Archive storage added: host id = {host_id}, directory id = {dir_id} archive id = {archive_id}")
+            else:
+                print("Adding archive storage FAILED")
+        elif parser.args.command == "archived-replica":
+            manager.archived_replica(
                 parser.args.name, parser.args.dirid, parser.args.archiveid, parser.args.newpath, parser.args.replica
             )
         elif parser.args.command == "time-series":
@@ -353,8 +368,8 @@ def main(args=None, prog=None):
     if len(sql_error_list) > 0:
         print()
         print("!!!! SQL Errors encountered")
-        for e in sql_error_list:
-            print(f"  {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+        for serr in sql_error_list:
+            print(f"  {serr.sqlite_errorcode}  {serr.sqlite_errorname}: {serr}")
         print("!!!!")
         print()
 

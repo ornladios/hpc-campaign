@@ -574,7 +574,7 @@ def archive_dataset(
 
     # Check replicas of dataset and see if there is conflict (need --replica option)
     orig_rep_id: int = args.replica
-    if args.replica is None:
+    if args.replica == 0:
         res = sql_execute(
             cur,
             f"select rowid, archiveid, deltime from replica where datasetid = {datasetid}",
@@ -622,6 +622,7 @@ def archive_dataset(
                 orig_rep_id = live_arch_rows[0][0]
 
     # get name and KeyID for selected replica
+    print(f"----- select datasetid, name, modtime, keyid, size from replica where rowid = {orig_rep_id}")
     res = sql_execute(
         cur,
         f"select datasetid, name, modtime, keyid, size from replica where rowid = {orig_rep_id}",
@@ -1021,7 +1022,10 @@ def check_archival_storage_system_name(system: str):
         raise ValueError("Archival storage system/protocol must be one of:Kronos, HPSS, HTTPS, S3, HTTP, FTP")
 
 
-def add_archival_storage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def add_archival_storage(
+    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection
+) -> tuple[int, int, int]:
+    """return tuple [hostid, directoryid, archiveid]"""
     protocol = args.system.lower()
     if protocol not in ("https", "http", "ftp", "s3"):
         protocol = ""
@@ -1037,7 +1041,7 @@ def add_archival_storage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sql
             with open(args.note, "rb") as f:
                 notes = f.read()
         except IOError as e:
-            print(f"WARNING: Failed to read notes from {args.notes}: {e.strerror}.")
+            print(f"WARNING: Failed to read notes from {args.note}: {e.strerror}.")
             notes = None
     tarname = ""
     if args.tarfilename:
@@ -1065,6 +1069,8 @@ def add_archival_storage(args: argparse.Namespace, cur: sqlite3.Cursor, con: sql
         print("  ERROR: Could not insert information into table 'archive' for some reason")
     elif args.tarfileidx:
         archive_idx(args, archive_id, cur, con, indent="  ")
+
+    return host_id, dir_id, archive_id
 
 
 def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
