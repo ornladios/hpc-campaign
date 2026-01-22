@@ -1,4 +1,3 @@
-import argparse
 from pathlib import Path
 
 from hpc_campaign.info import format_info
@@ -23,15 +22,6 @@ image_files = [
 info_outputs: dict[str, str] = {}
 
 
-def build_info_args() -> argparse.Namespace:
-    return argparse.Namespace(
-        list_replicas=True,
-        list_files=True,
-        show_deleted=True,
-        show_checksum=True,
-    )
-
-
 def main():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
     manager.open(create=True, truncate=True)
@@ -42,14 +32,8 @@ def main():
     manager.add_image(str(image_files[2]), name="T2", thumbnail=[64, 64])
     manager.add_text(str(readme_file), name="readme", store=True)
 
-    info_data = manager.info(
-        list_replicas=True,
-        list_files=True,
-        show_deleted=True,
-        show_checksum=True,
-    )
-
-    output = format_info(info_data, build_info_args())
+    info_data = manager.info(True, True, True, True)
+    output = format_info(info_data)
     print(output)
     manager.close()
 

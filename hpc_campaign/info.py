@@ -227,13 +227,14 @@ def info_dataset(  # pylint: disable=too-many-locals
             )
             file_rows = res3.fetchall()
             for file_row in file_rows:
+                cks = file_row[4] if args.show_checksum else ""
                 replica_info.files.append(
                     FileInfo(
                         name=file_row[0],
                         len_orig=file_row[1],
                         len_compressed=file_row[2],
                         mod_time=file_row[3],
-                        checksum=file_row[4],
+                        checksum=cks,
                     )
                 )
 
@@ -350,7 +351,7 @@ def collect_info(args: argparse.Namespace, cur: sqlite3.Cursor) -> InfoResult:  
 
 
 def format_info_dataset_lines(  # pylint: disable=too-many-locals
-    dataset_info: DatasetInfo, args: argparse.Namespace
+    dataset_info: DatasetInfo,
 ) -> list[str]:
     lines = []
     time_str = timestamp_to_str(dataset_info.mod_time)
@@ -358,9 +359,6 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
     if dataset_info.del_time > 0:
         dataset_line += f"  - deleted {timestamp_to_str(dataset_info.del_time)}"
     lines.append(dataset_line)
-
-    if not args.list_replicas and not args.list_files:
-        return lines
 
     for replica_info in dataset_info.replicas:
         flags = replica_info.flags
@@ -389,16 +387,13 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
             replica_line += f"  - deleted {timestamp_to_str(replica_info.del_time)}"
         lines.append(replica_line)
 
-        if not args.list_files:
-            continue
-
         for file_info in replica_info.files:
             if replica_info.key_id > 0:
                 prefix = " " * 28 + f"k{replica_info.key_id:<3}"
             else:
                 prefix = " " * 32
             file_line = prefix + f"{sizeof_fmt(file_info.len_compressed):>11}  {timestamp_to_str(file_info.mod_time)}"
-            if args.show_checksum:
+            if file_info.checksum:
                 file_line += f"         {file_info.checksum}  {file_info.name}"
             else:
                 file_line += f"         {file_info.name}"
@@ -407,7 +402,7 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
     return lines
 
 
-def format_info(info_data: InfoResult, args: argparse.Namespace) -> str:
+def format_info(info_data: InfoResult) -> str:
     lines = []
     archive_info = info_data.archive
     created_time = timestamp_to_str(archive_info.mod_time)
@@ -438,18 +433,18 @@ def format_info(info_data: InfoResult, args: argparse.Namespace) -> str:
         for ts_info in info_data.time_series:
             lines.append(f"  {ts_info.name}")
             for dataset_info in ts_info.datasets:
-                lines.extend(format_info_dataset_lines(dataset_info, args))
+                lines.extend(format_info_dataset_lines(dataset_info))
         lines.append("")
 
     if info_data.datasets:
         lines.append("Other Datasets:")
         for dataset_info in info_data.datasets:
-            lines.extend(format_info_dataset_lines(dataset_info, args))
+            lines.extend(format_info_dataset_lines(dataset_info))
 
     return "\n".join(lines)
 
 
-def print_info(info_data: InfoResult, args: argparse.Namespace):
-    output_text = format_info(info_data, args)
+def print_info(info_data: InfoResult):
+    output_text = format_info(info_data)
     if output_text:
         print(output_text)

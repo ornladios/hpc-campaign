@@ -292,13 +292,13 @@ def main(args=None, prog=None):
         # print("--------------------------")
         n_cmd += 1
         if n_cmd == 1:
-            manager.open(create=True, truncate = parser.args.truncate)
+            manager.open(create=True, truncate=parser.args.truncate)
 
         if parser.args.command == "info":
             info_data = manager.info(
                 parser.args.list_replicas, parser.args.list_files, parser.args.show_deleted, parser.args.show_checksum
             )
-            print_info(info_data, parser.args)
+            print_info(info_data)
         elif parser.args.command == "dataset":
             manager.add_dataset(parser.args.files, parser.args.name)
         elif parser.args.command == "text":
