@@ -34,8 +34,7 @@ def build_info_args() -> argparse.Namespace:
 
 def main():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
-    _result = manager.delete_campaign_file()
-    manager.create()
+    manager.open(create=True, truncate=True)
     assert api_archive.exists()
     manager.add_dataset([str(heat_dataset)], name="heat")
     manager.add_image(str(image_files[0]), name="T0")
@@ -52,6 +51,7 @@ def main():
 
     output = format_info(info_data, build_info_args())
     print(output)
+    manager.close()
 
 
 if __name__ == "__main__":
