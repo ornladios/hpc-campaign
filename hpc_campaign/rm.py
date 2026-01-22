@@ -4,31 +4,36 @@ import argparse
 import fnmatch
 import glob
 import re
+from os import remove
 
 from .config import Config
-from .utils import check_campaign_store
+from .utils import check_campaign_store, input_yes_or_no
 
 
-def ls(*patterns, wildcard: bool = False, campaign_store: str = "") -> list[str]:
+def rm(
+    *patterns, wildcard: bool = False, campaign_store: str = "", interactive: bool = False, force: bool = False
+) -> list[str]:
     args = argparse.Namespace()
     args.wildcard = wildcard
+    args.interactive = interactive
+    args.force = force
     args.pattern = []
     for p in patterns:
         args.pattern.append(p)
     args.verbose = 0
     args.campaign_store = campaign_store
-    args = _set_defaults_ls(args)
+    args = _set_defaults_rm(args)
     check_campaign_store(args.campaign_store, True)
-    return _list(args, collect=True)
+    return _remove(args, collect=True)
 
 
-def _setup_args_ls(args=None, prog=None):
+def _setup_args_rm(args=None, prog=None):
     parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument(
         "pattern",
         help="filter pattern(s) as regular expressions",
         default=None,
-        nargs="*",
+        nargs="+",
     )
     parser.add_argument(
         "-w",
@@ -37,13 +42,15 @@ def _setup_args_ls(args=None, prog=None):
         action="store_true",
         default=False,
     )
-    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default="")
+    parser.add_argument("-i", "--interactive", help="prompt before every removal", action="store_true")
+    parser.add_argument("-f", "--force", help="ignore errors, never prompt", action="store_true")
+    parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args(args=args)
-    return _set_defaults_ls(args)
+    return _set_defaults_rm(args)
 
 
-def _set_defaults_ls(args: argparse.Namespace):
+def _set_defaults_rm(args: argparse.Namespace):
     # default values
     args.user_options = Config()
 
@@ -57,18 +64,24 @@ def _set_defaults_ls(args: argparse.Namespace):
         while args.campaign_store[-1] == "/":
             args.campaign_store = args.campaign_store[:-1]
 
+    if args.force:
+        args.interactive = False
+
     if args.verbose > 0:
         print(f"# Verbosity = {args.verbose}")
         print(f"# Campaign Store = {args.campaign_store}")
         print(f"# pattern(s) = {args.pattern}")
+        print(f"# force = {args.force}")
+        print(f"# interactive = {args.interactive}")
     return args
 
 
-def _list(args: argparse.Namespace, collect: bool = True) -> list[str]:
-    """List the local campaign store"""
+# pylint: disable=too-many-nested-blocks
+def _remove(args: argparse.Namespace, collect: bool = True) -> list[str]:
+    # List the local campaign store
     result: list[str] = []
     aca_list = glob.glob(args.campaign_store + "/**/*.aca", recursive=True)
-    if len(aca_list) == 0:
+    if len(aca_list) == 0 and not args.force:
         print("There are no campaign archives in  " + args.campaign_store)
         return result
 
@@ -85,27 +98,36 @@ def _list(args: argparse.Namespace, collect: bool = True) -> list[str]:
                         matches = True
                         break
                 else:
-                    if re.search(p, name):
-                        matches = True
-                        break
+                    try:
+                        if re.search(p, name):
+                            matches = True
+                            break
+                    except re.error as e:
+                        if not args.force:
+                            raise e
 
         if matches:
-            if collect:
-                result.append(f[start_char_pos:])
-            else:
-                print(f[start_char_pos:])
+            do_remove = True
+            if args.interactive:
+                do_remove = input_yes_or_no(f"Remove {f[start_char_pos:]} (y/n)? ")
+            if do_remove:
+                remove(f)
+                if collect:
+                    result.append(f[start_char_pos:])
+                else:
+                    print(f[start_char_pos:])
     return result
 
 
 def main(args=None, prog=None):
-    args = _setup_args_ls(args=args, prog=prog)
+    args = _setup_args_rm(args=args, prog=prog)
     try:
         check_campaign_store(args.campaign_store, True)
     except (FileNotFoundError, ValueError) as e:
         print(e)
     else:
         try:
-            _list(args, collect=False)
+            _remove(args, collect=False)
         except re.error as e:
             print(f"Error using regular expression '{str(e.pattern)}': {e}")
 

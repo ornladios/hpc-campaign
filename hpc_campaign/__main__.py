@@ -17,6 +17,7 @@ def arg_parse():
             "hdf5_metadata",
             "ls",
             "manager",
+            "rm",
             "taridx",
         ],
     )

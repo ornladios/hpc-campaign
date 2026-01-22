@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta
 from os import walk
-from os.path import getsize, join
+from os.path import getsize, isdir, join
 from time import sleep
 
 
@@ -67,6 +67,15 @@ def sizeof_fmt(num: int, suffix="B") -> str:
             return f"{n:3.1f} {unit}{suffix}"
         n /= 1024.0
     return f"{n:.1f} Yi{suffix}"
+
+
+def check_campaign_store(campaign_store: str, error_on_empty: bool = False):
+    if error_on_empty and not campaign_store:
+        raise ValueError(
+            "Campaign directory must be set in ~/.config/hpc-campaign/config.yaml or by --campaign_store argument"
+        )
+    if campaign_store and not isdir(campaign_store):
+        raise FileNotFoundError(f"Campaign directory {campaign_store} does not exist")
 
 
 sql_error_list = []

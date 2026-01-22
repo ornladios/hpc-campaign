@@ -2,12 +2,9 @@
 
 import argparse
 import sys
-from os.path import basename, exists
-
-from .config import Config
+from os.path import basename
 
 __accepted_commands__ = [
-    "create",
     "delete",
     "info",
     "dataset",
@@ -69,59 +66,6 @@ class ArgParser:
 
     def parse_args_main(self, parser, argv) -> argparse.Namespace:
         args = parser.parse_args(argv)  # Without command
-
-        # default values
-        args.user_options = Config()
-        args.host_options = args.user_options.read_host_config()
-
-        if args.verbose == 0:
-            args.verbose = args.user_options.verbose
-
-        if args.campaign_store is None:
-            args.campaign_store = args.user_options.campaign_store_path
-
-        if args.campaign_store is not None:
-            while args.campaign_store[-1] == "/":
-                args.campaign_store = args.campaign_store[:-1]
-
-        args.remote_data = False
-        args.s3_endpoint = None
-        if args.hostname is None:
-            args.hostname = args.user_options.host_name
-        elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
-            args.remote_data = True
-            hostopt = args.host_options.get(args.hostname)
-            if hostopt is not None:
-                opt_id = next(iter(hostopt))
-                if hostopt[opt_id]["protocol"].casefold() == "s3":
-                    args.s3_endpoint = hostopt[opt_id]["endpoint"]
-                    if args.s3_bucket is None:
-                        print("ERROR: Remote option for an S3 server requires --s3_bucket")
-                        sys.exit(1)
-                    if args.s3_datetime is None:
-                        print("ERROR: Remote option for an S3 server requires --s3_datetime")
-                        sys.exit(1)
-
-        args.campaign_file_name = args.archive
-        if args.archive is not None:
-            if not args.archive.endswith(".aca"):
-                args.campaign_file_name += ".aca"
-            if (
-                not exists(args.campaign_file_name)
-                and not args.campaign_file_name.startswith("/")
-                and args.campaign_store is not None
-            ):
-                args.campaign_file_name = args.campaign_store + "/" + args.campaign_file_name
-
-        args.local_campaign_dir = ".adios-campaign/"
-
-        if args.verbose > 0:
-            print(f"# Verbosity = {args.verbose}")
-            print(f"# Campaign File Name = {args.campaign_file_name}")
-            print(f"# Campaign Store = {args.campaign_store}")
-            print(f"# Host name = {args.hostname}")
-            print(f"# Key file = {args.keyfile}")
-
         return args
 
     def parse_args_command(self, args: argparse.Namespace, parser, argv) -> argparse.Namespace:
@@ -161,6 +105,9 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
         parser.add_argument("--campaign_store", "-s", help="Path to local campaign store", default=None)
         parser.add_argument("--hostname", "-n", help="Host name unique for hosts in a campaign")
         parser.add_argument("--keyfile", "-k", help="Key file to encrypt metadata")
+        parser.add_argument(
+            "--truncate", "-t", help="Truncate existing archive, i.e. start from scratch", action="store_true"
+        )
         # parser.add_argument("--s3_bucket", help="Bucket on S3 server", default=None)
         # parser.add_argument(
         #     "--s3_datetime",
@@ -174,14 +121,6 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
         )
         parser.add_argument("command", nargs="?", help=__accepted_commands_str__, default=None)
 
-        # parser for the "create" command
-        parser_create = argparse.ArgumentParser(
-            prog=f"{prog} <archive> create",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            description="""Create a new campaign archive file.""",
-        )
-        parsers["create"] = parser_create
-
         # parser for the "delete" command
         parser_delete = argparse.ArgumentParser(
             prog=f"{prog} <archive> delete",
@@ -191,7 +130,6 @@ Type '%(prog)s <archive> <command> -h' for help on commands.
         parser_delete.add_argument("--uuid", nargs="+", metavar="id", help="Remove datasets by UUID")
         parser_delete.add_argument("--name", nargs="+", metavar="str", help="Remove datasets by name")
         parser_delete.add_argument("--replica", nargs="+", metavar="id", help="Remove replicas by ID number")
-        parser_delete.add_argument("--campaign", help="Delete entire campaign file", action="store_true")
 
         parsers["delete"] = parser_delete
 
@@ -412,7 +350,6 @@ One may need to run upgrade several times to reach the newest format.
             del args.name
             del args.uuid
             del args.replica
-            del args.campaign
         elif command == "add-archival-storage":
             del args.host
             del args.system
