@@ -155,6 +155,8 @@ class Manager:  # pylint: disable=too-many-public-methods
                 "show_checksum": show_checksum,
             },
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         info_data = collect_info(args, self.cur)
         return info_data
 
@@ -163,6 +165,8 @@ class Manager:  # pylint: disable=too-many-public-methods
         if name is not None and len(file_list) > 1:
             raise ValueError("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
         cmd_args = self._build_command_args("dataset", {"files": file_list, "name": name})
+        if not self.connected:
+            self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
     def add_text(self, files: list[str | Path] | str | Path, name: str | None = None, store: bool = False):
@@ -173,6 +177,8 @@ class Manager:  # pylint: disable=too-many-public-methods
             "text",
             {"files": file_list, "name": name, "store": store},
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
     def add_image(
@@ -190,21 +196,31 @@ class Manager:  # pylint: disable=too-many-public-methods
             "image",
             {"file": file_path, "name": name, "store": store, "thumbnail": thumb_value},
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
     def delete_uuid(self, uuid: str):
+        if not self.connected:
+            self.open(create=True, truncate=False)
         delete_dataset(self.args, self.cur, self.con, uniqueid=uuid)
         sql_commit(self.con)
 
     def delete_name(self, name: str):
+        if not self.connected:
+            self.open(create=True, truncate=False)
         delete_dataset(self.args, self.cur, self.con, name=name)
         sql_commit(self.con)
 
     def delete_replica(self, replicaid: int):
+        if not self.connected:
+            self.open(create=True, truncate=False)
         delete_replica(self.args, self.cur, self.con, replicaid, True)
         sql_commit(self.con)
 
     def delete_time_series(self, name: str):
+        if not self.connected:
+            self.open(create=True, truncate=False)
         delete_time_series(name, self.cur, self.con)
 
     def add_archival_storage(
@@ -230,6 +246,8 @@ class Manager:  # pylint: disable=too-many-public-methods
                 "note": note,
             },
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         add_archival_storage(cmd_args, self.cur, self.con)
 
     def archive_dataset(
@@ -246,6 +264,8 @@ class Manager:  # pylint: disable=too-many-public-methods
                 "move": move,
             },
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         archive_dataset(cmd_args, self.cur, self.con)
 
     def add_time_series(self, name: str, datasets: list[str], replace: bool = False):
@@ -253,9 +273,13 @@ class Manager:  # pylint: disable=too-many-public-methods
             "add_time_series",
             {"name": name, "datasets": datasets, "replace": replace},
         )
+        if not self.connected:
+            self.open(create=True, truncate=False)
         add_time_series(cmd_args, self.cur, self.con)
 
     def upgrade(self):
+        if not self.connected:
+            self.open(create=True, truncate=False)
         upgrade_aca(self.args, self.cur, self.con)
 
     def normalize_files(self, files: list[str | Path] | str | Path) -> list[str]:
