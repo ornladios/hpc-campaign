@@ -36,5 +36,5 @@ hpc_campaign manager $ACA archived heat ${archivedirID} --newpath archivedheat.b
 hpc_campaign manager $ACA info -rfdc 
 
 # delete the aca
-# hpc_campaign manager $ACA delete --campaign
+# hpc_campaign rm --campaign_store $PWD example_cli.aca
 
