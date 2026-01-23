@@ -6,5 +6,6 @@ HPC Campaign Management
 
    introduction
    installation
-   usage
+   usage_cli
+   usage_api
 

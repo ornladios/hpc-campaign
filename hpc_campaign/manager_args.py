@@ -11,7 +11,7 @@ __accepted_commands__ = [
     "text",
     "image",
     "add-archival-storage",
-    "archived",
+    "archived-replica",
     "time-series",
     "upgrade",
 ]
@@ -260,9 +260,9 @@ will be pointing to specific offsets in the TAR file.
         parser_addarchive.add_argument("--longhostname", metavar="str", help="Optional long host name")
         parser_addarchive.add_argument("--note", metavar="fname", help="Optional notes file")
 
-        # parser for the "archived" command
+        # parser for the "archived-replica" command
         parser_archive = argparse.ArgumentParser(
-            prog=f"{prog} <archive>  archived",
+            prog=f"{prog} <archive>  archived-replica",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description="""
 Indicate that a dataset/replica is copied/moved to an archival storage.
@@ -273,12 +273,12 @@ from the original replica's path, specify it with <newpath>.
 Use info -r to list replicas in the campaign archive (and also to find the
 archival directory's id).
 If there are more than one, conflicting, replicas then --repid must be used
-to indicate which version was archived.
+to indicate which replica was archived.
 If a directory has multiple archives (e.g. ./ and a TAR file), use --archiveid ID,
 which is the second integer in the listing of directories under an archive directory
 """,
         )
-        parsers["archived"] = parser_archive
+        parsers["archived-replica"] = parser_archive
         parser_archive.add_argument("name", help="Name of dataset", type=str)
         parser_archive.add_argument("dirid", help="Archival host's directory ID", type=int)
         parser_archive.add_argument(
@@ -292,7 +292,7 @@ which is the second integer in the listing of directories under an archive direc
             type=str,
             metavar="str",
         )
-        parser_archive.add_argument("--replica", help="Replica ID", metavar="id", type=int)
+        parser_archive.add_argument("--replica", help="Replica ID", metavar="id", type=int, default=0)
         parser_archive.add_argument("--move", help="Delete original replica", action="store_true")
 
         # parser for the "time-series" command
@@ -356,7 +356,7 @@ One may need to run upgrade several times to reach the newest format.
             del args.directory
             del args.tarfilename
             del args.tarfileidx
-        elif command == "archived":
+        elif command == "archived-replica":
             del args.name
             del args.dirid
             del args.archiveid
