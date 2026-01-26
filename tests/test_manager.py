@@ -17,7 +17,7 @@ campaign_store = repo_root
 data_dir = Path("data")
 cmdline_archive = data_dir / "test_cmdline.aca"
 api_archive = data_dir / "test_api.aca"
-heat_dataset = data_dir / "heat.bp"
+heat_data = data_dir / "heat.bp"
 readme_file = data_dir / "readme"
 image_files = [
     data_dir / "T00000.png",
@@ -84,15 +84,15 @@ def test_04_create_api():
     assert api_archive.exists()
 
 
-def test_05_dataset_cli():
-    run_manager_command([str(cmdline_archive), "dataset", str(heat_dataset), "--name", "heat"])
+def test_05_data_cli():
+    run_manager_command([str(cmdline_archive), "data", str(heat_data), "--name", "heat"])
     assert cmdline_archive.exists()
 
 
-def test_06_dataset_api():
+def test_06_data_api():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
     manager.open()
-    manager.add_dataset([str(heat_dataset)], name="heat")
+    manager.data([str(heat_data)], name="heat")
     manager.close()
     assert api_archive.exists()
 
@@ -106,9 +106,9 @@ def test_07_image_cli():
 def test_08_image_api():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
     # leaving out  manager.open()/manager.close() to test it works this way too
-    manager.add_image(str(image_files[0]), name="T0")
-    manager.add_image(str(image_files[1]), name="T1", store=True)
-    manager.add_image(str(image_files[2]), name="T2", thumbnail=[64, 64])
+    manager.image(str(image_files[0]), name="T0")
+    manager.image(str(image_files[1]), name="T1", store=True)
+    manager.image(str(image_files[2]), name="T2", thumbnail=[64, 64])
 
 
 def test_09_text_cli():
@@ -117,7 +117,7 @@ def test_09_text_cli():
 
 def test_10_text_api():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
-    manager.add_text(str(readme_file), name="readme", store=True)
+    manager.text(str(readme_file), name="readme", store=True)
 
 
 def test_11_info_cli():

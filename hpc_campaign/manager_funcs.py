@@ -351,7 +351,7 @@ def add_resolution_to_archive(
     return row_id
 
 
-def process_datasets(
+def process_data(
     args: argparse.Namespace,
     cur: sqlite3.Cursor,
     host_id: int,
@@ -361,9 +361,9 @@ def process_datasets(
     location: str,
 ):
     for entry in args.files:
-        dataset = entry
+        dataset_name = entry
         if args.name is not None:
-            dataset = args.name
+            dataset_name = args.name
         unique_id = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + entry).hex
         ds_id = 0
 
@@ -379,7 +379,7 @@ def process_datasets(
             filesize = statres.st_size
 
         if args.remote_data:
-            ds_id = add_dataset_to_archive(dataset, cur, unique_id, "ADIOS", mt)
+            ds_id = add_dataset_to_archive(dataset_name, cur, unique_id, "ADIOS", mt)
             rep_id = add_replica_to_archive(
                 host_id,
                 dir_id,
@@ -393,7 +393,7 @@ def process_datasets(
                 indent="  ",
             )
         elif is_adios_dataset(entry):
-            ds_id = add_dataset_to_archive(dataset, cur, unique_id, "ADIOS", mt)
+            ds_id = add_dataset_to_archive(dataset_name, cur, unique_id, "ADIOS", mt)
             filesize = get_folder_size(entry)
             rep_id = add_replica_to_archive(
                 host_id,
@@ -418,7 +418,7 @@ def process_datasets(
         elif is_hdf5_dataset(entry):
             mdfilename = "/tmp/md_" + basename(entry)
             copy_hdf5_file_without_data(entry, mdfilename)
-            ds_id = add_dataset_to_archive(dataset, cur, unique_id, "HDF5", mt)
+            ds_id = add_dataset_to_archive(dataset_name, cur, unique_id, "HDF5", mt)
             rep_id = add_replica_to_archive(
                 host_id,
                 dir_id,
@@ -434,7 +434,7 @@ def process_datasets(
             add_file_to_archive(args, mdfilename, cur, rep_id, mt, basename(entry))
             remove(mdfilename)
         else:
-            print(f"WARNING: Dataset {dataset} is neither an ADIOS nor an HDF5 dataset. Skip")
+            print(f"WARNING: Data {entry} is neither an ADIOS nor an HDF5 file. Skip")
 
 
 def process_text_files(
@@ -1087,8 +1087,8 @@ def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
     dir_id = add_directory(host_id, rootdir, cur)
     sql_commit(con)
 
-    if args.command == "dataset":
-        process_datasets(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
+    if args.command == "data":
+        process_data(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
     elif args.command == "text":
         process_text_files(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
     elif args.command == "image":

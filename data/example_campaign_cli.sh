@@ -7,8 +7,8 @@
 ACA=$PWD/example_cli.aca
 
 # wipe the aca (in case it exists) to start from scratch
-# add a dataset with a representation name
-hpc_campaign manager $ACA --truncate dataset data/heat.bp  --name heat
+# add a data file with a representation name
+hpc_campaign manager $ACA --truncate data data/heat.bp  --name heat
 
 # add an image with a representation name
 hpc_campaign manager $ACA image data/T00000.png  --name T0
