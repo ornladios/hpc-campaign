@@ -28,13 +28,13 @@ def main():
     manager = Manager(archive=str(api_archive), campaign_store=str(campaign_store))
     manager.open(create=True, truncate=True)
     assert repo_root.joinpath(api_archive).exists()
-    manager.add_dataset(str(heat_dataset), name="heat")
+    manager.data(str(heat_dataset), name="heat")
     # Path, and list of str and Path are valid arguments
-    manager.add_dataset([data_dir / "onearray.h5"])
-    manager.add_image(str(image_files[0]), name="T0")
-    manager.add_image(str(image_files[1]), name="T1", store=True)
-    manager.add_image(str(image_files[2]), name="T2", thumbnail=[64, 64])
-    manager.add_text(str(readme_file), name="readme", store=True)
+    manager.data([data_dir / "onearray.h5"])
+    manager.image(str(image_files[0]), name="T0")
+    manager.image(str(image_files[1]), name="T1", store=True)
+    manager.image(str(image_files[2]), name="T2", thumbnail=[64, 64])
+    manager.text(str(readme_file), name="readme", store=True)
 
     host_id, dir_id, archive_id = manager.add_archival_storage(
         system="fs", host="faketape", directory=str(data_dir / "archive")

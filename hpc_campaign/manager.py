@@ -160,16 +160,16 @@ class Manager:  # pylint: disable=too-many-public-methods
         info_data = collect_info(args, self.cur)
         return info_data
 
-    def add_dataset(self, files: list[str | Path] | str | Path, name: str | None = None):
+    def data(self, files: list[str | Path] | str | Path, name: str | None = None):
         file_list = self.normalize_files(files)
         if name is not None and len(file_list) > 1:
-            raise ValueError("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
-        cmd_args = self._build_command_args("dataset", {"files": file_list, "name": name})
+            raise ValueError("Invalid arguments for data: when using --name <name>, only one data file is allowed")
+        cmd_args = self._build_command_args("data", {"files": file_list, "name": name})
         if not self.connected:
             self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
-    def add_text(self, files: list[str | Path] | str | Path, name: str | None = None, store: bool = False):
+    def text(self, files: list[str | Path] | str | Path, name: str | None = None, store: bool = False):
         file_list = self.normalize_files(files)
         if name is not None and len(file_list) > 1:
             raise ValueError("Invalid arguments for text: when using --name <name>, only one text file is allowed")
@@ -181,7 +181,7 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
-    def add_image(
+    def image(
         self,
         file_path: str | Path,
         name: str | None = None,
@@ -322,12 +322,12 @@ def main(args=None, prog=None):
                 parser.args.list_replicas, parser.args.list_files, parser.args.show_deleted, parser.args.show_checksum
             )
             print_info(info_data)
-        elif parser.args.command == "dataset":
-            manager.add_dataset(parser.args.files, parser.args.name)
+        elif parser.args.command == "data":
+            manager.data(parser.args.files, parser.args.name)
         elif parser.args.command == "text":
-            manager.add_text(parser.args.files, parser.args.name, parser.args.store)
+            manager.text(parser.args.files, parser.args.name, parser.args.store)
         elif parser.args.command == "image":
-            manager.add_image(parser.args.file, parser.args.name, parser.args.store, parser.args.thumbnail)
+            manager.image(parser.args.file, parser.args.name, parser.args.store, parser.args.thumbnail)
         elif parser.args.command == "delete":
             if parser.args.uuid is not None:
                 for uid in parser.args.uuid:

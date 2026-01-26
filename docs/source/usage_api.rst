@@ -33,7 +33,7 @@ The following options are available globally for the manager command to overwrit
 
 * `campaign_store` specifies the path to the local campaign store used by the campaign manager instead of the default path set in `~/.config/hpc-campaign/config.yaml`
 * `hostname` provides the host name, which must be unique for hosts within a campaign used by the campaign manager instead of the default hostname set in `~/.config/hpc-campaign/config.yaml`
-* `keyfile` specifies the key file used to encrypt metadata in all subsequent dataset/image/text operation
+* `keyfile` specifies the key file used to encrypt metadata in all subsequent data/image/text operation
 
 
 **Manager sub-commands**
@@ -41,16 +41,16 @@ The following options are available globally for the manager command to overwrit
 The [sub-command] argument can take one of the following values
 
 * **add_archival_storage** Register an archival location (tape system, https, s3)
-* **add_dataset** Add ADIOS2 or HDF5 files
-* **add_image** Add images, embedded or remote optionally with an embedded thumbnail image
-* **add_text** Add text files, embedded or just reference to remote file
-* **add_time_series** Organizing a series of individual datasets as a single entry with extra dimension for time
+* **data** Add ADIOS2 or HDF5 files
+* **image** Add images, embedded or remote optionally with an embedded thumbnail image
+* **text** Add text files, embedded or just reference to remote file
+* **add_time_series** Organizing a series of individual data files as a single entry with extra dimension for time
 * **archived_replica** Create a replica of a dataset pointing to an archival storage location
 * **close** Close the campaign archive after all operations.
-* **delete_name** Delete dataset/image/text by name (all replicas)
-* **delete_replica** Delete a replica of dataset/image/text
-* **delete_time_series** Delete a time-series definition (but not the datasets themselves)
-* **delete_uuid** Delete dataset/image/text by UUID (all replicas)
+* **delete_name** Delete a dataset by name (all replicas)
+* **delete_replica** Delete a replica of a dataset
+* **delete_time_series** Delete a time-series definition (but not the data objects themselves)
+* **delete_uuid** Delete a dataset by UUID (all replicas)
 * **info** List the content of a campaign archive
 * **open** Open/create a campaign archive, optionally wipe all content to start afresh
 * **upgrade** For upgrading an older ACA format to newer format
@@ -91,9 +91,9 @@ If we put a TAR file there instead of individual files, we can just point to tha
 
 **Return values**: `host_id`, `directory_id`, `archive_id`, use the directory_id and archive_id in follow-up `archived_replica` calls to identify this archival storage. Technically, `archive_id` is only needed if one host has multiple archive-storages under the same directory (e.g. individual files plus a TAR file in the same location for storing two replicas).
 
-**2. add_dataset**
+**2. data**
 
-Adds one or more datasets to the archive with datasets being valid HDF5 or ADIOS2 BP files.
+Adds one or more data files to the archive: currently valid HDF5 or ADIOS2 BP files are accepted.
 
 .. note::
 
@@ -104,12 +104,12 @@ Example usage:
 
 .. code-block:: python
 
-  manager.add_dataset("data/heat.bp", name="heat")
-  manager.add_dataset(["data/run_001.h5", "data/run_002.h5", "data/run_003.h5"])
+  manager.data("data/heat.bp", name="heat")
+  manager.data(["data/run_001.h5", "data/run_002.h5", "data/run_003.h5"])
 
 Additional option (`name="<NAME>"`) can specify the representation name for one dataset in the campaign hierarchy. The same option can be applied to the text and image sub-commands.
 
-**3. add_image**
+**3. image**
 
 Add an image file to the archive. By default, only a remote reference is stored for image files but it can be stored (`store=True``) or a thumbnail with a smaller resolution can be stored (`thumbnail=[64, 64]`)
 
@@ -117,14 +117,14 @@ Example usage:
 
 .. code-block:: python
 
-    manager.add_image("data/T0.png", name="T0")
-    manager.add_image("data/T1.png", name="T1", store=True)
-    manager.add_image("data/T2.png", name="T2", thumbnail=[64, 64])
+    manager.image("data/T0.png", name="T0")
+    manager.image("data/T1.png", name="T1", store=True)
+    manager.image("data/T2.png", name="T2", thumbnail=[64, 64])
 
 Additional options for images include:
 * `name="<NAME>"` representation name for the image in the campaign hierarchy
 
-**4. add_text**
+**4. text**
 
 Add one or more text files to the archive. If requested, text files are stored within the archive. In that case, zlib is used to compress the text file.
 
@@ -136,9 +136,9 @@ Example usage:
 
 .. code-block:: python
 
-  manager.add_text("input.json", name="input", store=True)
+  manager.text("input.json", name="input", store=True)
   file = Path("data/readme")
-  manager.add_text(file, name="readme", store=True)
+  manager.text(file, name="readme", store=True)
 
 
 Additional options for text include:
@@ -153,12 +153,12 @@ Organizes a sequence of datasets into a single named time-series. Subsequent cal
 
   manager = Manager("test.aca")
   manager.open(create=True)
-  manager.add_dataset("series/array00.bp", name="array00")
-  manager.add_dataset("series/array01.bp", name="array01")
-  manager.add_dataset("series/array02.bp", name="array02")
+  manager.data("series/array00.bp", name="array00")
+  manager.data("series/array01.bp", name="array01")
+  manager.data("series/array02.bp", name="array02")
   manager.add_time_series("array", ["array00", "array01", "array02"])
 
-  manager.add_dataset("series/array03.bp", name="array03")
+  manager.data("series/array03.bp", name="array03")
   manager.add_time_series("array", ["array03"])
   manager.close()
   
@@ -213,7 +213,7 @@ Close the campaign archive after all operations. It is only for freeing up resou
 
 **8. delete_name**
 
-Delete specific item (dataset, image, text) from a campaign archive file referring to their representation name. All replicas are deleted along with all embedded files. 
+Delete specific dataset (data, image, text) from a campaign archive file referring to their representation name. All replicas are deleted along with all embedded files. 
 Example usage:
 
 .. code-block:: python
@@ -222,7 +222,7 @@ Example usage:
 
 **9. delete_replica**
 
-Delete specific replica of an item (dataset, image, text) from a campaign archive file. Embedded files are deleted only if it is the only replica referring to a file.
+Delete specific replica of a dataset (data, image, text) from a campaign archive file. Embedded files are deleted only if it is the only replica referring to a file.
 Example usage:
 
 .. code-block:: python
@@ -231,7 +231,7 @@ Example usage:
 
 **10. delete_time_series**
 
-Delete specific replica of an item (dataset, image, text) from a campaign archive file. Embedded files are deleted only if it is the only replica referring to a file.
+Delete the time series definition (of a series of data object) from a campaign archive file. The data objects are not deleted, only this extra definition
 Example usage:
 
 .. code-block:: python
@@ -241,7 +241,7 @@ Example usage:
 
 **11. delete_uuid**
 
-Delete specific item (dataset, image, text) from a campaign archive file. All replicas are deleted along with all embedded files. 
+Delete specific dataset (data, image, text) from a campaign archive file. All replicas are deleted along with all embedded files. 
 Example usage:
 
 .. code-block:: python
@@ -305,10 +305,10 @@ Configuration:
 
     manager = Manager(archive="demoproject/test_campaign_001")
     manager.open(create=True, truncate=True)
-    manager.add_text("runs/input-configuration.json", store=True)
-    manager.add_dataset(["runs/simulation-output.bp" ,"runs/simulation-chekpoint.bp"])
-    manager.add_dataset("analysis/pdf.bp")
-    manager.add_image("analysis/plot-2d.png", store=True)
+    manager.text("runs/input-configuration.json", store=True)
+    manager.data(["runs/simulation-output.bp" ,"runs/simulation-chekpoint.bp"])
+    manager.data("analysis/pdf.bp")
+    manager.image("analysis/plot-2d.png", store=True)
 
     info_data = manager.info(True, False, False, False)
     output = format_info(info_data)

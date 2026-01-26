@@ -7,7 +7,7 @@ from os.path import basename
 __accepted_commands__ = [
     "delete",
     "info",
-    "dataset",
+    "data",
     "text",
     "image",
     "add-archival-storage",
@@ -46,8 +46,8 @@ class ArgParser:
             cmdline = self.commandlines[self.cmdidx]
             self.args = self.parse_args_command(self.args, self.parsers[cmdline[0]], cmdline)
             self.cmdidx += 1
-            if self.args.command == "dataset":
-                self.check_args_dataset(self.args)
+            if self.args.command == "data":
+                self.check_args_data(self.args)
             elif self.args.command == "text":
                 self.check_args_text(self.args)
             self.prev_command = cmdline[0]
@@ -76,10 +76,10 @@ class ArgParser:
         parser.parse_args(argv[1:], namespace=args)
         return args
 
-    def check_args_dataset(self, args):
+    def check_args_data(self, args):
         if args.name is not None:
             if len(args.files) > 1:
-                raise ValueError("Invalid arguments for dataset: when using --name <name>, only one dataset is allowed")
+                raise ValueError("Invalid arguments for data: when using --name <name>, only one file is allowed")
 
     def check_args_text(self, args):
         if args.name is not None:
@@ -167,18 +167,18 @@ file:     [encryption key]  size  date  [cheksum]  filename
         parser_info.add_argument("-c", "--show-checksum", help="Show checksums of files", action="store_true")
         parsers["info"] = parser_info
 
-        # parser for the "dataset" command
-        parser_dataset = argparse.ArgumentParser(
-            prog=f"{prog} <archive> dataset",
+        # parser for the "data" command
+        parser_data = argparse.ArgumentParser(
+            prog=f"{prog} <archive> data",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description="""
-Add one or more datasets to the archive. Datasets can be valid HDF5 or ADIOS2-BP files.
+Add one or more data files to the archive. Data can be valid HDF5 or ADIOS2-BP files.
 A temporary file is created from HDF5 files so one must have write access to /tmp.
 """,
         )
-        parsers["dataset"] = parser_dataset
-        parser_dataset.add_argument("files", nargs="+", help="add ADIOS/HDF5 files manually")
-        parser_dataset.add_argument(
+        parsers["data"] = parser_data
+        parser_data.add_argument("files", nargs="+", help="add ADIOS/HDF5 files manually")
+        parser_data.add_argument(
             "--name",
             "-n",
             default=None,
@@ -329,7 +329,7 @@ One may need to run upgrade several times to reach the newest format.
         return parsers
 
     def remove_prev_args(self, command: str, args: argparse.Namespace):
-        if command == "dataset":
+        if command == "data":
             del args.name
             del args.files
         elif command == "text":
