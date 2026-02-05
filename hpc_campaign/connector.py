@@ -667,6 +667,7 @@ class SSHLocalRemoteTunnel:
 
 
 g_server_config_data = None
+g_server_config_aliases: dict[str, str] = {}
 
 
 def read_yaml_config(filename: str):
@@ -1048,8 +1049,15 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
             self.send_response("port:-1,msg:missing_service_in_request")
             return
 
+        req_group_name = req_qry["group"][0]
+        if req_group_name in g_server_config_aliases:
+            req_group_name = g_server_config_aliases[req_group_name]
+            print(f"Found alias to {req_group_name}")
+            req_qry["group"] = [req_group_name]
+            print("Modified service request: ", req_qry)
+
         local_port, service_cookie = self.check_service_running(
-            service_name=req_qry["service"][0], service_group=req_qry["group"][0]
+            service_name=req_qry["service"][0], service_group=req_group_name
         )
         if local_port is not None:
             if service_cookie is not None:
@@ -1527,6 +1535,12 @@ def start_server(argv):
         g_server_config_data = read_yaml_config(config_file)
     else:
         g_server_config_data = {}
+
+    for group_key, group_data in g_server_config_data.items():
+        if isinstance(group_data, str):
+            # it's an alias to another group
+            if group_data in g_server_config_data:
+                g_server_config_aliases[group_key] = group_data
 
     read_keys()
 
