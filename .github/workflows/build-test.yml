@@ -54,7 +54,7 @@ jobs:
       run: |
         pip3 install -e .
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca create
-        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca dataset data/heat.bp --name heat
+        python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca data data/heat.bp --name heat
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00000.png --name T0 --store
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00001.png --name T1
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00002.png --name T2 --thumbnail 64 64
