@@ -740,7 +740,7 @@ def add_time_series(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
         if len(rows) > 0:
             tsorder = rows[-1][0] + 1
 
-    for dsname in args.dataset:
+    for dsname in args.datasets:
         cur_ds = sql_execute(
             cur,
             f"update dataset set tsid = {ts_id}, tsorder = {tsorder} "

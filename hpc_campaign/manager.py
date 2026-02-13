@@ -269,10 +269,13 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         archive_dataset(cmd_args, self.cur, self.con)
 
-    def add_time_series(self, name: str, datasets: list[str], replace: bool = False):
+    def add_time_series(self, name: str, datasets: str | list[str], replace: bool = False):
+        dslist = datasets
+        if isinstance(datasets, str):
+            dslist = [datasets]
         cmd_args = self._build_command_args(
             "add_time_series",
-            {"name": name, "datasets": datasets, "replace": replace},
+            {"name": name, "datasets": dslist, "replace": replace},
         )
         if not self.connected:
             self.open(create=True, truncate=False)
