@@ -39,7 +39,7 @@ dependencies = [
     "PyNaCl >= 1.5",
     "redis >= 5",
     "h5py >= 3.10",
-    "pillow >= 11"
+    "pillow >= 12.1.1"
 ]
 
 [project.urls]
