@@ -360,9 +360,9 @@ def main(args=None, prog=None):
                 parser.args.name, parser.args.dirid, parser.args.archiveid, parser.args.newpath, parser.args.replica
             )
         elif parser.args.command == "time-series":
-            if parser.args.remove is not None:
+            if parser.args.remove:
                 manager.delete_time_series(parser.args.name)
-            manager.add_time_series(parser.args.name, parser.args.datasets, parser.args.replace)
+            manager.add_time_series(parser.args.name, parser.args.dataset, parser.args.replace)
         elif parser.args.command == "upgrade":
             manager.upgrade()
         else:
