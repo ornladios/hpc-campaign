@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import fnmatch
 import glob
 import re
 
-from .config import Config
-from .utils import check_campaign_store
+from .utils import check_campaign_store, matches_pattern, set_default_args_from_config
 
 
 def ls(*patterns, wildcard: bool = False, campaign_store: str = "") -> list[str]:
@@ -44,19 +42,7 @@ def _setup_args_ls(args=None, prog=None):
 
 
 def _set_defaults_ls(args: argparse.Namespace):
-    # default values
-    args.user_options = Config()
-
-    if args.verbose == 0:
-        args.verbose = args.user_options.verbose
-
-    if not args.campaign_store:
-        args.campaign_store = args.user_options.campaign_store_path
-
-    if args.campaign_store:
-        while args.campaign_store[-1] == "/":
-            args.campaign_store = args.campaign_store[:-1]
-
+    set_default_args_from_config(args, False)
     if args.verbose > 0:
         print(f"# Verbosity = {args.verbose}")
         print(f"# Campaign Store = {args.campaign_store}")
@@ -75,21 +61,7 @@ def _list(args: argparse.Namespace, collect: bool = True) -> list[str]:
     start_char_pos = len(args.campaign_store) + 1
     for f in aca_list:
         name = f[start_char_pos:]
-        matches = False
-        if len(args.pattern) == 0:
-            matches = True
-        else:
-            for p in args.pattern:
-                if args.wildcard:
-                    if fnmatch.fnmatch(name, p):
-                        matches = True
-                        break
-                else:
-                    if re.search(p, name):
-                        matches = True
-                        break
-
-        if matches:
+        if matches_pattern(name, args.pattern, args.wildcard):
             if collect:
                 result.append(f[start_char_pos:])
             else:

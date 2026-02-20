@@ -1,8 +1,16 @@
+import fnmatch
+import re
 import sqlite3
+from argparse import Namespace
 from datetime import datetime, timedelta
 from os import walk
 from os.path import getsize, isdir, join
-from time import sleep
+from pathlib import Path
+from time import sleep, time_ns
+
+from .config import Config
+
+CURRENT_TIME = time_ns()
 
 
 def timestamp_to_datetime(timestamp: int) -> datetime:
@@ -76,6 +84,76 @@ def check_campaign_store(campaign_store: str, error_on_empty: bool = False):
         )
     if campaign_store and not isdir(campaign_store):
         raise FileNotFoundError(f"Campaign directory {campaign_store} does not exist")
+
+
+def matches_pattern(name: str, patterns: list[str], wildcard: bool, ignore_re_errors: bool = True):
+    """True if name matches any of the patterns, which are interpreted as regular expressions or file-name wildcards.
+    If patterns is an empy list, the function returns True. If ignore_re_errors is False, errors in regular expressions
+    will raise the error.
+    """
+    matches = False
+    if len(patterns) == 0:
+        matches = True
+    else:
+        for p in patterns:
+            if wildcard:
+                if fnmatch.fnmatch(name, p):
+                    matches = True
+                    break
+            else:
+                try:
+                    if re.search(p, name):
+                        matches = True
+                        break
+                except re.error as e:
+                    if not ignore_re_errors:
+                        raise e
+    return matches
+
+
+def get_path(path: str, basepath: str = "") -> str:
+    """
+    Join basepath with path unless
+    - `path` is absolute
+    - `path` starts with ./, ../, or ~,
+    - `basepath` is empty.
+    Path with ~ will be expanded to home full path.
+    Note, path is not made absolute, only for ~/...
+    """
+    p = Path(path)
+
+    # Case 1: Absolute path or explicit relative shortcuts
+    if p.is_absolute() or path.startswith("./") or path.startswith("../") or path.startswith("~"):
+        return str(p.expanduser())
+
+    # Case 2: Relative name + basepath provided
+    if basepath:
+        return str((Path(basepath) / p).expanduser())
+
+    # Case 3: Fallback
+    return str(p)
+
+
+def set_default_args_from_config(args: Namespace, read_host_config: bool = False) -> Namespace:
+    """
+    Set default values after user arguments are already parsed.
+    Reads the config file and optionally the host file from ~/.config/hpc-campaign
+    Adds to args: `user_options`, `verbose`, `campaign_store` and optionally `host_options`
+    """
+    args.user_options = Config()
+    if read_host_config:
+        args.host_options = args.user_options.read_host_config()
+
+    if args.verbose == 0:
+        args.verbose = args.user_options.verbose
+
+    if args.campaign_store:
+        p = Path(args.campaign_store)
+    else:
+        p = Path(args.user_options.campaign_store_path)
+
+    args.campaign_store = str(p.expanduser().resolve())
+    return args
 
 
 sql_error_list = []
