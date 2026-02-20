@@ -27,16 +27,17 @@ import nacl.utils
 from dateutil.parser import parse
 from PIL import Image
 
-from .config import ACA_VERSION, Config
+from .config import ACA_VERSION
 from .hdf5_metadata import copy_hdf5_file_without_data, is_hdf5_dataset
 from .taridx import TARTYPES
 from .utils import (
+    CURRENT_TIME,
     get_folder_size,
+    get_path,
+    set_default_args_from_config,
     sql_commit,
     sql_execute,
 )
-
-CURRENT_TIME = time_ns()
 
 
 def parse_date_to_utc(date, fmt=None):
@@ -48,18 +49,7 @@ def parse_date_to_utc(date, fmt=None):
 
 def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     """Set default values after user arguments are already parsed"""
-    args.user_options = Config()
-    args.host_options = args.user_options.read_host_config()
-
-    if args.verbose == 0:
-        args.verbose = args.user_options.verbose
-
-    if not args.campaign_store:
-        args.campaign_store = args.user_options.campaign_store_path
-
-    if args.campaign_store:
-        while args.campaign_store[-1] == "/":
-            args.campaign_store = args.campaign_store[:-1]
+    set_default_args_from_config(args, True)
 
     args.remote_data = False
     args.s3_endpoint = None
@@ -79,12 +69,9 @@ def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
                     print("ERROR: Remote option for an S3 server requires --s3_datetime")
                     sys.exit(1)
 
-    args.campaign_file_name = args.archive
-    if args.archive is not None:
-        if not args.archive.endswith(".aca"):
-            args.campaign_file_name += ".aca"
-        if not exists(args.campaign_file_name) and not args.campaign_file_name.startswith("/") and args.campaign_store:
-            args.campaign_file_name = args.campaign_store + "/" + args.campaign_file_name
+    args.campaign_file_name = get_path(args.archive, args.campaign_store)
+    if not args.campaign_file_name.endswith(".aca"):
+        args.campaign_file_name += ".aca"
 
     args.local_campaign_dir = ".adios-campaign/"
 

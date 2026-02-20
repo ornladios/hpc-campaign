@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
-import fnmatch
 import glob
 import re
 from os import remove
 
-from .config import Config
-from .utils import check_campaign_store, input_yes_or_no
+from .utils import check_campaign_store, input_yes_or_no, matches_pattern, set_default_args_from_config
 
 
 def rm(
@@ -51,18 +49,7 @@ def _setup_args_rm(args=None, prog=None):
 
 
 def _set_defaults_rm(args: argparse.Namespace):
-    # default values
-    args.user_options = Config()
-
-    if args.verbose == 0:
-        args.verbose = args.user_options.verbose
-
-    if not args.campaign_store:
-        args.campaign_store = args.user_options.campaign_store_path
-
-    if args.campaign_store:
-        while args.campaign_store[-1] == "/":
-            args.campaign_store = args.campaign_store[:-1]
+    set_default_args_from_config(args, False)
 
     if args.force:
         args.interactive = False
@@ -88,25 +75,7 @@ def _remove(args: argparse.Namespace, collect: bool = True) -> list[str]:
     start_char_pos = len(args.campaign_store) + 1
     for f in aca_list:
         name = f[start_char_pos:]
-        matches = False
-        if len(args.pattern) == 0:
-            matches = True
-        else:
-            for p in args.pattern:
-                if args.wildcard:
-                    if fnmatch.fnmatch(name, p):
-                        matches = True
-                        break
-                else:
-                    try:
-                        if re.search(p, name):
-                            matches = True
-                            break
-                    except re.error as e:
-                        if not args.force:
-                            raise e
-
-        if matches:
+        if matches_pattern(name, args.pattern, args.wildcard, not args.force):
             do_remove = True
             if args.interactive:
                 do_remove = input_yes_or_no(f"Remove {f[start_char_pos:]} (y/n)? ")
