@@ -7,9 +7,10 @@ import re
 from .utils import check_campaign_store, matches_pattern, set_default_args_from_config
 
 
-def ls(*patterns, wildcard: bool = False, campaign_store: str = "") -> list[str]:
+def ls(*patterns, wildcard: bool = False, index: bool = False, campaign_store: str = "") -> list[str]:
     args = argparse.Namespace()
     args.wildcard = wildcard
+    args.index = index
     args.pattern = []
     for p in patterns:
         args.pattern.append(p)
@@ -35,6 +36,7 @@ def _setup_args_ls(args=None, prog=None):
         action="store_true",
         default=False,
     )
+    parser.add_argument("-x", "--index", help="look for indexes not archives", action="store_true")
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default="")
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args(args=args)
@@ -53,7 +55,10 @@ def _set_defaults_ls(args: argparse.Namespace):
 def _list(args: argparse.Namespace, collect: bool = True) -> list[str]:
     """List the local campaign store"""
     result: list[str] = []
-    aca_list = glob.glob(args.campaign_store + "/**/*.aca", recursive=True)
+    ext = ".aca"
+    if args.index:
+        ext = ".acx"
+    aca_list = glob.glob(args.campaign_store + "/**/*" + ext, recursive=True)
     if len(aca_list) == 0:
         print("There are no campaign archives in  " + args.campaign_store)
         return result

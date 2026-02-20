@@ -25,7 +25,6 @@ from time import sleep, time_ns
 import adios2  # type: ignore[import-untyped]
 import nacl.secret
 import nacl.utils
-from dateutil.parser import parse
 from PIL import Image
 
 from .config import ACA_VERSION
@@ -35,17 +34,11 @@ from .utils import (
     CURRENT_TIME,
     get_folder_size,
     get_path,
+    parse_date_to_utc,
     set_default_args_from_config,
     sql_commit,
     sql_execute,
 )
-
-
-def parse_date_to_utc(date, fmt=None):
-    if fmt is None:
-        fmt = "%Y-%m-%d %H:%M:%S %z"  # Defaults to : 2022-08-31 07:47:30 -0000
-    get_date_obj = parse(str(date))
-    return get_date_obj.timestamp()
 
 
 def set_default_args(args: argparse.Namespace) -> argparse.Namespace:

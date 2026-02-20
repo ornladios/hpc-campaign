@@ -8,6 +8,8 @@ from os.path import getsize, isdir, join
 from pathlib import Path
 from time import sleep, time_ns
 
+from dateutil.parser import parse
+
 from .config import Config
 
 CURRENT_TIME = time_ns()
@@ -41,6 +43,13 @@ def datetime_to_str(t: datetime) -> str:
 def timestamp_to_str(timestamp: int) -> str:
     t = timestamp_to_datetime(timestamp)
     return datetime_to_str(t)
+
+
+def parse_date_to_utc(date, fmt=None):
+    if fmt is None:
+        fmt = "%Y-%m-%d %H:%M:%S %z"  # Defaults to : 2022-08-31 07:47:30 -0000
+    get_date_obj = parse(str(date))
+    return get_date_obj.timestamp()
 
 
 def input_yes_or_no(msg: str, default_answer: bool = False) -> bool:

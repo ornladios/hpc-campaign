@@ -42,6 +42,7 @@ def _setup_args_rm(args=None, prog=None):
     )
     parser.add_argument("-i", "--interactive", help="prompt before every removal", action="store_true")
     parser.add_argument("-f", "--force", help="ignore errors, never prompt", action="store_true")
+    parser.add_argument("-x", "--index", help="look for indexes not archives", action="store_true")
     parser.add_argument("-s", "--campaign_store", help="Path to local campaign store", default=None)
     parser.add_argument("-v", "--verbose", help="More verbosity", action="count", default=0)
     args = parser.parse_args(args=args)
@@ -67,7 +68,10 @@ def _set_defaults_rm(args: argparse.Namespace):
 def _remove(args: argparse.Namespace, collect: bool = True) -> list[str]:
     # List the local campaign store
     result: list[str] = []
-    aca_list = glob.glob(args.campaign_store + "/**/*.aca", recursive=True)
+    ext = ".aca"
+    if args.index:
+        ext = ".acx"
+    aca_list = glob.glob(args.campaign_store + "/**/*" + ext, recursive=True)
     if len(aca_list) == 0 and not args.force:
         print("There are no campaign archives in  " + args.campaign_store)
         return result

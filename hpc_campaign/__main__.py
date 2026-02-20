@@ -15,6 +15,7 @@ def arg_parse():
             "connector",
             "genkey",
             "hdf5_metadata",
+            "index",
             "ls",
             "manager",
             "rm",
