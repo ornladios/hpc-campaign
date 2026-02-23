@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
+import numpy as np
 import sqlite3
 import sys
 from os.path import exists
 from pathlib import Path
 from time import sleep
+from typing import TypeAlias, Any
 
 import adios2
 
 from .config import ACA_VERSION, Config
+from .info import InfoResult, DatasetInfo
 from .ls import ls
 from .manager import Manager
 from .utils import (
@@ -22,6 +26,9 @@ from .utils import (
     sql_execute,
     timestamp_to_str,
 )
+
+ADIOS_AvailableVariables: TypeAlias = dict[str, dict[str, str]]
+DatasetsVariables: TypeAlias = dict[int, ADIOS_AvailableVariables]
 
 
 class Index:
@@ -67,7 +74,6 @@ class Index:
 
         if truncate:
             self._wipe_acx()
-
         if not fileexists or truncate:
             self._create_tables(self.args.index_file)
 
@@ -91,42 +97,25 @@ class Index:
                 print(f"index archive={archive}")
             self._index_archive(archive)
 
-    def _add_archive(self, archive: str, indent: str) -> int:
-        cur = self.con.cursor()
-        cur_ds = sql_execute(
-            cur,
-            "insert into archives (name, date_indexed) "
-            "values  (?, ?) "
-            "on conflict (name) "
-            "do update set date_indexed = ? "
-            "returning rowid",
-            (
-                archive,
-                CURRENT_TIME,
-                CURRENT_TIME,
-            ),
-        )
-        row_id = cur_ds.fetchone()[0]
-        if self.args.verbose > 0:
-            print(f"{indent}  Archive rowid = {row_id}")
-        return row_id
-
-    def _index_archive(self, archive: str):
-        manager = Manager(archive, campaign_store=self.args.campaign_store, verbose=0)
-        info_res = manager.info()
-        if len(info_res.datasets) < 0:
-            return
-
-        self._add_archive(archive, "    ")
-        for ds in info_res.datasets:
-            if self.args.verbose > 0:
-                print(f"    index dataset {ds.name}")
-
-        sql_commit(self.con)
-
     def remove(self, patterns: list[str], wildcard: bool = False) -> None:
-        cmd_args = self._build_command_args("remove", {"patterns": patterns, "wildcard": wildcard})
-        print(f"index remove patterns={cmd_args.patterns} wildcard={cmd_args.wildcard}")
+        archives = self.ls(patterns, wildcard, collect=True)
+        for archive in archives:
+            if self.args.verbose > 0:
+                print(f"remove archive={archive}")
+            cur = self.con.cursor()
+            cur_arch = sql_execute(cur, f'DELETE FROM archives WHERE name = "{archive}" RETURNING rowid')
+            for row_arch in cur_arch:
+                archiveid = row_arch[0]
+                if self.args.verbose > 0:
+                    print(f"    remove datasets for archive id = {archiveid}")
+                cur_ds = sql_execute(cur, f"DELETE FROM datasets WHERE archiveid = {archiveid} RETURNING rowid")
+                for row_ds in cur_ds:
+                    dsid = row_ds[0]
+                    if self.args.verbose > 0:
+                        print(f"        remove variables/attributes for dataset id = {dsid}")
+                    sql_execute(cur, f"DELETE FROM variables WHERE archiveid = {archiveid} and datasetid = {dsid}")
+                    sql_execute(cur, f"DELETE FROM attributes WHERE archiveid = {archiveid} and datasetid = {dsid}")
+            sql_commit(self.con)
 
     def ls(self, patterns: list[str], wildcard: bool = False, collect: bool = True) -> list[str]:
         result: list[str] = []
@@ -173,12 +162,7 @@ class Index:
         )
 
         sql_execute(cur, "CREATE TABLE archives (name TEXT, date_indexed INT, PRIMARY KEY (name))")
-        sql_execute(
-            cur,
-            """
-            CREATE TABLE datasets (archiveid INT, datasetid INT, name TEXT, PRIMARY KEY (archiveid, datasetid))
-            """,
-        )
+        sql_execute(cur, "CREATE TABLE datasets (archiveid INT, dsid INT, name TEXT, PRIMARY KEY (archiveid, dsid))")
         sql_execute(
             cur,
             """
@@ -207,6 +191,20 @@ class Index:
 
     def print_tables(self):
         cur = self.con.cursor()
+        print("ARCHIVES")
+        cursor = sql_execute(cur, "SELECT * FROM archives")
+        names = [description[0] for description in cursor.description]
+        print(names)
+        for row in cursor:
+            print(row)
+
+        print("DATASETS")
+        cursor = sql_execute(cur, "SELECT * FROM datasets")
+        names = [description[0] for description in cursor.description]
+        print(names)
+        for row in cursor:
+            print(row)
+
         print("ATTRIBUTES")
         cursor = sql_execute(cur, "SELECT * FROM attributes")
         names = [description[0] for description in cursor.description]
@@ -220,6 +218,135 @@ class Index:
         print(names)
         for row in cursor:
             print(row)
+
+    def _add_archive(self, archive: str, indent: str) -> int:
+        cur = self.con.cursor()
+        cur_ds = sql_execute(
+            cur,
+            "insert into archives (name, date_indexed) values  (?, ?) "
+            "on conflict (name) do update set date_indexed = ? "
+            "returning rowid",
+            (
+                archive,
+                CURRENT_TIME,
+                CURRENT_TIME,
+            ),
+        )
+        row_id = cur_ds.fetchone()[0]
+        if self.args.verbose > 0:
+            print(f"{indent}Archive {archive} rowid = {row_id}")
+        return row_id
+
+    def _add_dataset(self, archiveid: int, dsid: int, dataset: str, indent: str) -> int:
+        cur = self.con.cursor()
+        cur_ds = sql_execute(
+            cur,
+            "insert into datasets (archiveid, dsid, name) values  (?, ?, ?) "
+            "on conflict (archiveid, dsid) do update set name = ? "
+            "returning rowid",
+            (archiveid, dsid, dataset, dataset),
+        )
+        row_id = cur_ds.fetchone()[0]
+        if self.args.verbose > 0:
+            print(f"{indent}Dataset {dataset}  rowid = {row_id}")
+        return row_id
+
+    def _add_variable(self, archiveid: int, datasetid: int, var: str, value: Any):
+        cur = self.con.cursor()
+        sql_execute(cur, "INSERT INTO variables VALUES (?, ?, ?, ?)", (archiveid, datasetid, var, json.dumps(value)))
+
+    def _add_attribute(self, archiveid: int, datasetid: int, attribute: Any, value: Any):
+        cur = self.con.cursor()
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
+        if isinstance(value, np.floating):
+            value = float(value)
+        if isinstance(value, (np.integer)):
+            value = int(value)
+        sql_execute(cur, "INSERT INTO attributes VALUES (?, ?, ?)", (archiveid, datasetid, json.dumps(attribute)))
+
+    def _organize_by_dataset(self, entries: ADIOS_AvailableVariables, info: InfoResult) -> DatasetsVariables:
+        d: DatasetsVariables = {}
+        dsid = -1
+        last_used_dsname = "!@#*.|/ This /is surely a/nonexistent path"
+        for ename, edict in entries.items():
+            if ename.startswith(last_used_dsname):
+                print(f"        Use last dsname {last_used_dsname} for {ename}")
+                entryname = ename[len(last_used_dsname) + 1 :]
+            for ds in info.datasets:
+                if ename.startswith(ds.name):
+                    dsid = ds.id
+                    last_used_dsname = ds.name
+                    entryname = ename[len(ds.name) + 1 :]
+                    print(f"        Use new dsname {last_used_dsname} for {ename}")
+                    break
+            if dsid == -1:
+                raise RuntimeError(
+                    f"Variable/attribute path {ename} has no matching dataset name. This should not happen"
+                )
+            print(f"        add {entryname} : to d{dsid}")
+            d.setdefault(dsid, {}).update({entryname: edict})
+        return d
+
+    def _index_archive(self, archive: str):
+        manager = Manager(archive, campaign_store=self.args.campaign_store, verbose=0)
+        info_res = manager.info()
+        if len(info_res.datasets) < 0:
+            return
+
+        archiveid = self._add_archive(archive, "    ")
+
+        dsdict: dict[int, tuple[int, str]] = {}
+        for ds in info_res.datasets:
+            datasetid = self._add_dataset(archiveid, ds.id, ds.name, "    ")
+            dsdict[ds.id] = (datasetid, ds.name)
+
+        # ds.id, dsid: the dataset integer ID in the archive file itself
+        # datasetid: rowid of the datasets table in this database
+
+        if self.args.verbose > 0:
+            print("  index datasets:", end="")
+            for ds in info_res.datasets:
+                print(f" {ds.name}", end="")
+            print("")
+
+        with adios2.FileReader(archive) as f:
+            variables = f.available_variables()
+            ds_var_entries: DatasetsVariables = self._organize_by_dataset(variables, info_res)
+            attributes = f.available_attributes()
+            ds_attr_entries: DatasetsVariables = self._organize_by_dataset(attributes, info_res)
+
+            # add variables to the collection
+            for dsid, vars in ds_var_entries.items():
+                for var_name, var_info in vars.items():
+                    if self.args.verbose > 0:
+                        print(f"      Process variable {dsdict[dsid][1]}  /  {var_name}")
+                    if var_name.endswith(".json"):
+                        content = f.read(f"{dsdict[dsid][1]}/{var_name}")
+                        json_attributes = json.loads("".join(chr(code) for code in content))
+                        d = {}
+                        for atr in json_attributes:
+                            d[atr] = json_attributes[atr]
+                        self._add_variable(archiveid, dsdict[dsid][0], var_name, d)
+                    else:  # otherwise we add variable data
+                        self._add_variable(archiveid, dsdict[dsid][0], var_name, var_info)
+
+            # add attributes to the collection
+            for dsid, attrs in ds_attr_entries.items():
+                for attr_name, attr_info in attrs.items():
+                    if self.args.verbose > 0:
+                        print(f"      Process attribute {dsdict[dsid][1]}  /  {attr_name}")
+                    content = f.read_attribute(f"{dsdict[dsid][1]}/{attr_name}")
+                    if attr_name.endswith(".json"):
+                        json_attributes = json.loads("".join(chr(code) for code in content))
+                        d = {}
+                        for atr in json_attributes:
+                            d[atr] = json_attributes[atr]
+                        self._add_attribute(archiveid, dsdict[dsid][0], attr_name, d)
+                    else:  # otherwise we add variable data
+                        self._add_attribute(archiveid, dsdict[dsid][0], attr_name, content)
+
+        sql_commit(self.con)
 
 
 def _set_defaults_index(args: argparse.Namespace) -> argparse.Namespace:
@@ -239,6 +366,10 @@ class CampaignSqlite:
     separator = "/"
     prefix_elements = 2
     dataset_list = []
+
+    def __init__(self, db, cursor, groupby="campaign"):
+        self.db = db
+        self.cursor = cursor
 
     def set_dataset_list(self, campaign, path):
         manager = Manager(archive=str(campaign))
@@ -352,6 +483,7 @@ class CampaignSqlite:
         self.db.commit()
 """
 
+
 def _setup_args_index(args=None, prog=None):
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -367,7 +499,7 @@ Type '%(prog)s <indexfile> <command> -h' for help on commands.
     )
     parser.add_argument(
         "command",
-        choices=["add", "remove", "ls"],
+        choices=["add", "remove", "ls", "dump"],
         help="Command to run",
     )
     parser.add_argument(
@@ -410,6 +542,8 @@ def main(args=None, prog=None):
         index.remove(patterns, wildcard=args.wildcard)
     elif args.command == "ls":
         index.ls(patterns, wildcard=args.wildcard, collect=False)
+    elif args.command == "dump":
+        index.print_tables()
     else:
         print(f"Unknown command for index: {args.command}")
 
