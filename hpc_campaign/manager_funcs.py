@@ -269,23 +269,10 @@ def add_replica_to_archive(
         "insert into replica (datasetid, hostid, dirid, archiveid, name, modtime, deltime, keyid, size) "
         "values  (?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "on conflict (datasetid, hostid, dirid, archiveid, name) "
-        "do update set modtime = ?, deltime = ?, keyid = ?, size = ? "
+        "do update set modtime = excluded.modtime, deltime = excluded.deltime, "
+        "keyid = excluded.keyid, size = excluded.size "
         "returning rowid",
-        (
-            datasetid,
-            host_id,
-            dir_id,
-            archive_id,
-            dataset,
-            mt,
-            0,
-            key_id,
-            size,
-            mt,
-            0,
-            key_id,
-            size,
-        ),
+        (datasetid, host_id, dir_id, archive_id, dataset, mt, 0, key_id, size),
     )
     row_id = cur_ds.fetchone()[0]
     print(f"{indent}  Replica rowid = {row_id}")
@@ -305,9 +292,9 @@ def add_dataset_to_archive(
         cur,
         "insert into dataset (name, uuid, modtime, deltime, fileformat, tsid, tsorder) "
         "values  (?, ?, ?, ?, ?, ?, ?) "
-        "on conflict (name) do update set deltime = ? "
+        "on conflict (name) do update set deltime = excluded.deltime "
         "returning rowid",
-        (name, unique_id, mt, 0, fileformat, 0, 0, 0),
+        (name, unique_id, mt, 0, fileformat, 0, 0),
     )
     dataset_id = cur_ds.fetchone()[0]
     return dataset_id
@@ -325,8 +312,8 @@ def add_resolution_to_archive(
         cur,
         "insert into resolution (replicaid, x, y) "
         "values  (?, ?, ?) "
-        "on conflict (replicaid) do update set x = ?, y = ? returning rowid",
-        (rep_id, x, y, x, y),
+        "on conflict (replicaid) do update set x = excluded.x, y = excluded.y returning rowid",
+        (rep_id, x, y),
     )
     row_id = cur_ds.fetchone()[0]
     return row_id
@@ -715,8 +702,9 @@ def add_time_series(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     # insert/update timeseries
     cur_ts = sql_execute(
         cur,
-        "insert into timeseries (name) values  (?) on conflict (name) do update set name = ? returning rowid",
-        (args.name, args.name),
+        "insert into timeseries (name) values  (?) "
+        "on conflict (name) do update set name = excluded.name returning rowid",
+        (args.name),
     )
     ts_id = cur_ts.fetchone()[0]
     print(f"Time series ID = {ts_id}, already existed = {ts_exists}")
@@ -859,18 +847,9 @@ def archive_idx_replica(
                 cur,
                 "insert into archiveidx (archiveid, replicaid, filename, offset, offset_data, size)"
                 " values  (?, ?, ?, ?, ?, ?) "
-                "on conflict (archiveid, replicaid, filename) do update set offset = ?, offset_data = ?, size = ?",
-                (
-                    archive_id,
-                    archived_replica_id,
-                    fname,
-                    offset,
-                    data_offset,
-                    size,
-                    offset,
-                    data_offset,
-                    size,
-                ),
+                "on conflict (archiveid, replicaid, filename) do update "
+                "set offset = excluded.offset, offset_data = excluded.offset_data, size = excluded.size",
+                (archive_id, archived_replica_id, fname, offset, data_offset, size),
             )
         sql_commit(con)
 

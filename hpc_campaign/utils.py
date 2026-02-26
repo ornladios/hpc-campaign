@@ -7,6 +7,7 @@ from os import walk
 from os.path import getsize, isdir, join
 from pathlib import Path
 from time import sleep, time_ns
+from typing import Any, Iterable
 
 from dateutil.parser import parse
 
@@ -178,6 +179,27 @@ def sql_execute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:
         sleep(1.0)
         try:
             res = cur.execute(cmd, parameters)
+        except sqlite3.Error as e:
+            print(f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+            raise e
+        print("SQL re-execute succeeded")
+
+    except sqlite3.Error as e:
+        print(f"SQL execute Error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
+        raise e
+    return res
+
+
+def sql_executemany(cur: sqlite3.Cursor, cmd: str, parameters: Iterable[Any]) -> sqlite3.Cursor:
+    res = cur
+    try:
+        res = cur.executemany(cmd, parameters)
+    except sqlite3.OperationalError as oe:
+        print(f"SQL execute Operational Error: {oe.sqlite_errorcode}  {oe.sqlite_errorname}: {oe}")
+        sql_error_list.append(oe)
+        sleep(1.0)
+        try:
+            res = cur.executemany(cmd, parameters)
         except sqlite3.Error as e:
             print(f"SQL re-execute error: {e.sqlite_errorcode}  {e.sqlite_errorname}: {e}")
             raise e
