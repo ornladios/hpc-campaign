@@ -74,6 +74,7 @@ class Index:
             raise FileNotFoundError(f"index {self.args.index_file} does not exist")
 
         self.con = sqlite3.connect(self.args.index_file)
+        sql_execute(self.con.cursor(), "PRAGMA foreign_keys = ON")
         self.connected = True
 
         if truncate:
@@ -107,18 +108,10 @@ class Index:
             if self.args.verbose > 0:
                 print(f"remove archive={archive}")
             cur = self.con.cursor()
-            cur_arch = sql_execute(cur, f'DELETE FROM archives WHERE name = "{archive}" RETURNING rowid')
-            for row_arch in cur_arch:
-                archiveid = row_arch[0]
-                if self.args.verbose > 0:
-                    print(f"    remove datasets for archive id = {archiveid}")
-                cur_ds = sql_execute(cur, f"DELETE FROM datasets WHERE archiveid = {archiveid} RETURNING rowid")
-                for row_ds in cur_ds:
-                    dsid = row_ds[0]
-                    if self.args.verbose > 0:
-                        print(f"        remove variables/attributes for dataset id = {dsid}")
-                    sql_execute(cur, f"DELETE FROM variables WHERE archiveid = {archiveid} and datasetid = {dsid}")
-                    sql_execute(cur, f"DELETE FROM attributes WHERE archiveid = {archiveid} and datasetid = {dsid}")
+            cur_arch = sql_execute(cur, f'DELETE FROM archives WHERE name = "{archive}" RETURNING archiveid')
+            if self.args.verbose > 0:
+                for row_arch in cur_arch:
+                    print(f"    removed archive id = {row_arch[0]}")
             sql_commit(self.con)
 
     def ls(self, patterns: list[str], wildcard: bool = False, collect: bool = True) -> list[str]:
@@ -157,11 +150,11 @@ class Index:
     def _create_tables(self, index_file: str):
         print(f"Create new index {index_file}")
         cur = self.con.cursor()
-        sql_execute(cur, "create table info(id TEXT, name TEXT, version TEXT, modtime INT)")
+        sql_execute(cur, "CREATE TABLE info(id TEXT, name TEXT, version TEXT, modtime INT)")
         sql_commit(self.con)
         sql_execute(
             cur,
-            "insert into info values (?, ?, ?, ?)",
+            "INSERT INTO info VALUES (?, ?, ?, ?)",
             ("ACX", "ADIOS Campaign Index", ACA_VERSION, CURRENT_TIME),
         )
 
@@ -173,17 +166,40 @@ class Index:
         dt = [(t.value, t.name) for t in DatasetType]
         sql_executemany(cur, "INSERT INTO datasettypes VALUES (?, ?)", dt)
 
-        sql_execute(cur, "CREATE TABLE archives (name TEXT, date_indexed INT, PRIMARY KEY (name))")
         sql_execute(
-            cur, "CREATE TABLE datasets (archiveid INT, dsid INT, name TEXT, type INT, PRIMARY KEY (archiveid, dsid))"
+            cur,
+            """
+            CREATE TABLE archives (
+                archiveid    INTEGER PRIMARY KEY,
+                name         TEXT    NOT NULL UNIQUE,
+                date_indexed INT
+            )""",
+        )
+        sql_execute(
+            cur,
+            """
+            CREATE TABLE datasets (
+                datasetid INTEGER PRIMARY KEY,
+                archiveid INTEGER NOT NULL,
+                dsid      INT     NOT NULL,
+                name TEXT,
+                type INT,
+
+                UNIQUE (archiveid, dsid),
+
+                FOREIGN KEY (archiveid)
+                    REFERENCES archives(archiveid)
+                    ON DELETE CASCADE
+                    ON UPDATE CASCADE
+            )""",
         )
         sql_execute(
             cur,
             """
             CREATE TABLE variables (
-                archiveid INT,
-                datasetid INT,
-                name TEXT,
+                archiveid INTEGER NOT NULL,
+                datasetid INTEGER NOT NULL,
+                name      TEXT    NOT NULL,
                 type INT,
                 steps INT,
                 min TEXT,
@@ -191,21 +207,32 @@ class Index:
                 ndim INT,
                 shape TEXT,
                 value TEXT,
-                PRIMARY KEY (archiveid, datasetid, name)
+
+                PRIMARY KEY (archiveid, datasetid, name),
+
+                FOREIGN KEY (datasetid)
+                    REFERENCES datasets(datasetid)
+                    ON DELETE CASCADE
+                    ON UPDATE CASCADE
             )""",
         )
         sql_execute(
             cur,
             """
             CREATE TABLE attributes (
-                archiveid INT,
-                datasetid INT,
-                name TEXT,
-                type INT,
-                value TEXT,
-                PRIMARY KEY (archiveid, datasetid, name)
-            )
-        """,
+                archiveid INTEGER NOT NULL,
+                datasetid INTEGER NOT NULL,
+                name      TEXT    NOT NULL,
+                type      INT,
+                value     TEXT,
+
+                PRIMARY KEY (archiveid, datasetid, name),
+
+                FOREIGN KEY (datasetid)
+                    REFERENCES datasets(datasetid)
+                    ON DELETE CASCADE
+                    ON UPDATE CASCADE
+            )""",
         )
 
         sql_commit(self.con)
@@ -237,13 +264,13 @@ class Index:
             cur,
             "insert into archives (name, date_indexed) values  (?, ?) "
             "on conflict (name) do update set date_indexed = excluded.date_indexed "
-            "returning rowid",
+            "returning archiveid",
             (archive, CURRENT_TIME),
         )
-        row_id = cur_ds.fetchone()[0]
+        archiveid = cur_ds.fetchone()[0]
         if self.args.verbose > 0:
-            print(f"{indent}Archive {archive} rowid = {row_id}")
-        return row_id
+            print(f"{indent}Archive {archive} rowid = {archiveid}")
+        return archiveid
 
     def _add_dataset(self, archiveid: int, dsid: int, dataset: str, dataset_type: DatasetType, indent: str) -> int:
         cur = self.con.cursor()
@@ -251,13 +278,13 @@ class Index:
             cur,
             "insert into datasets (archiveid, dsid, name, type) values  (?, ?, ?, ?) "
             "on conflict (archiveid, dsid) do update set name = excluded.name, type = excluded.type "
-            "returning rowid",
+            "returning datasetid",
             (archiveid, dsid, dataset, int(dataset_type)),
         )
-        row_id = cur_ds.fetchone()[0]
+        datasetid = cur_ds.fetchone()[0]
         if self.args.verbose > 0:
-            print(f"{indent}Dataset {dataset}  rowid = {row_id}")
-        return row_id
+            print(f"{indent}Dataset {dataset}  rowid = {datasetid}")
+        return datasetid
 
     def _add_variable(
         self,
