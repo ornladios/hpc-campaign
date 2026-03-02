@@ -22,6 +22,7 @@ from pathlib import Path
 from socket import getfqdn
 from time import sleep, time_ns
 
+import adios2  # type: ignore[import-untyped]
 import nacl.secret
 import nacl.utils
 from dateutil.parser import parse
@@ -394,11 +395,22 @@ def process_data(
                 filesize,
                 indent="  ",
             )
+            include_md_files = False
+            try:
+                with adios2.FileReader(entry) as fr:
+                    md = fr.get_metadata()
+                    add_file_to_archive(
+                        args, "", cur, rep_id, mt=mt, filename_as_recorded="metadata", compress=True, content=md
+                    )
+            except ValueError:
+                include_md_files = True
             cwd = getcwd()
             chdir(entry)
-            md_file_list = glob.glob("*md.*")
+            files: list[str] = []
+            if include_md_files:
+                files = glob.glob("*md.*")
             profile_list = glob.glob("profiling.json")
-            files = md_file_list + profile_list
+            files += profile_list
             for f in files:
                 add_file_to_archive(args, f, cur, rep_id)
             chdir(cwd)
