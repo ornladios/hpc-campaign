@@ -7,7 +7,7 @@ requires = [
 
 [project]
 name = "hpc-campaign"
-version = "0.6.0"
+version = "0.7.0"
 description = "Campaign management scripts for remote data access"
 readme = "README.md"
 authors = [
@@ -37,6 +37,7 @@ dependencies = [
     "PyYAML >= 6",
     "paramiko >= 3.5",
     "PyNaCl >= 1.5",
+    "adios2 (>=2.11.0)",
     "redis >= 5",
     "h5py >= 3.10",
     "pillow >= 12.1.1"
@@ -90,7 +91,6 @@ dev = [
     "types-paramiko (>=4.0.0.20250822,<5.0.0.0)",
     "types-python-dateutil (>=2.9.0.20251115,<3.0.0.0)",
     "pylint (>=4.0.4,<5.0.0)",
-    "adios2 (>=2.11.0)",
     "matplotlib (>=3.10.0)",
 ]
 

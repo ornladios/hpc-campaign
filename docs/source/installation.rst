@@ -12,7 +12,8 @@ This toolkit requires the following Python packages.
 - **pyyaml**, parsing yaml configuration files
 - **PyNaCl** for encoding metadata with keys
 - **pillow** for processing images
-- **h5py** for adding HDF5 files
+- **adios2** for adding ADIOS data
+- **h5py** for adding HDF5 data
 - **redis** for *hpc_campaign cache* to list local cache information (Redis is used by ADIOS2 for caching)
 
 Besides these packages, Python needs support for Tcl/Tk (python3-tk), so that *hpc_campaign connector* can pop up a dialog for password entries.
@@ -50,7 +51,8 @@ Versions
 --------
 
 ACA 0.6 version is compatible with ADIOS 2.11.0
-ACA 0.7 version is compatible with ADIOS 2.11.1
+
+ACA 0.7 version is compatible with ADIOS 2.12.0
 
 Setup 
 -----
@@ -88,6 +90,17 @@ Use `~/.config/hpc-campaign/config.yaml` to specify these options.
 ~/.config/hpc-campaign/hosts.yaml
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+The campaign archive records locations of datasets as a host name plus directory and optionally a default protocol like https. The host name is an artifical identifier, and ADIOS needs to be told how to access data on that resource. 
+
+Use `~/.config/hpc-campaign/hosts.yaml` to specify these access settings. ADIOS can use 
+
+- SSH tunnels to launch a private server for the session. For this you need to have an account on that resource, and have ADIOS2 installed including the `adios2_remote_server` executable. 
+
+- xRootD service, using various "transfer protocols" to reach the xRootD service (http, https or xroot protocols)
+
+- S3 protocol to reach Amazon AWS cloud as well as other S3-compatible storages. Set up an AWS profile (the S3 access key id and secret key in `~/.aws/credentials`) and use that profile name here. 
+
+
 .. code-block:: bash
 
     $ cat ~/.config/hpc-campaign/hosts.yaml
@@ -110,3 +123,20 @@ Use `~/.config/hpc-campaign/config.yaml` to specify these options.
             identity_file: ~/.ssh/nersc
             serverpath: ~/adios/master/dtn/bin/adios2_remote_server -background -report_port_selection -v -v -l /global/homes/u/user007/dtn/log.adios2_remote_server -t 16
             verbose: 1
+
+    UEDGE.Spin:
+        spin:
+            protocol: xrootd
+            transfer_protocol: https  # http, https or xrootd (default is xrootd)
+            host: adios2-xrootd-ingress.adios2-remote.development.svc.spin.uedge.org
+            port: 443
+            verbose: 0
+
+    Robinia:
+        s3-transport:
+            protocol: s3
+            profile: robinia
+            endpoint: https://projects.handsey.org.au
+            AWS_EC2_METADATA: false
+            recheck_metadata: false
+            verbose: 0
