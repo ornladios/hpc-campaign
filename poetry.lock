@@ -6,7 +6,7 @@ version = "2.11.0.1012"
 description = "The Adaptable Input Output System version 2"
 optional = false
 python-versions = ">=3.8"
-groups = ["dev"]
+groups = ["main"]
 files = [
     {file = "adios2-2.11.0.1012-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:686cf4948022ba81fa2822bbe4ff8cf18019aebe54c5e14c9c71fee3ce713660"},
     {file = "adios2-2.11.0.1012-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:21788dd10deea2b1168ff9c9926e7b14c355c39a7a03ab74f202c46c4a9db133"},
@@ -1743,4 +1743,4 @@ markers = {main = "python_version == \"3.10\""}
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "4641603a2537e91b1a9897b451be9eab02895f12f030c61c02f3b578f9f644a1"
+content-hash = "e8e3b17848cd3e5c3a938cdedbcc401f6de09285563b0be476372d877a16b435"
