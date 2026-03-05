@@ -704,7 +704,7 @@ def add_time_series(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
         cur,
         "insert into timeseries (name) values  (?) "
         "on conflict (name) do update set name = excluded.name returning rowid",
-        (args.name),
+        (args.name,),
     )
     ts_id = cur_ts.fetchone()[0]
     print(f"Time series ID = {ts_id}, already existed = {ts_exists}")
