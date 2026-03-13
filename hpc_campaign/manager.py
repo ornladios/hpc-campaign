@@ -120,6 +120,7 @@ class Manager:  # pylint: disable=too-many-public-methods
             raise FileNotFoundError(f"archive {self.args.campaign_file_name} does not exist")
 
         self.con = sqlite3.connect(self.args.campaign_file_name)
+        self.con.row_factory = sqlite3.Row
         self.cur = self.con.cursor()
         self.connected = True
 
@@ -157,7 +158,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         )
         if not self.connected:
             self.open(create=True, truncate=False)
-        info_data = collect_info(args, self.cur)
+        info_data = collect_info(args, self.con)
         return info_data
 
     def data(self, files: list[str | Path] | str | Path, name: str | None = None):

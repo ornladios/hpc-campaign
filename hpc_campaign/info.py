@@ -88,7 +88,6 @@ class ReplicaFlags:
 class ReplicaInfo:  # pylint: disable=too-many-instance-attributes
     """Replica metadata entry."""
 
-    id: int
     host_id: int
     dir_id: int
     archive_id: int
@@ -106,22 +105,20 @@ class ReplicaInfo:  # pylint: disable=too-many-instance-attributes
 class DatasetInfo:
     """Dataset metadata entry."""
 
-    id: int
     uuid: str
     name: str
     mod_time: int
     del_time: int
     file_format: str
-    replicas: list[ReplicaInfo] = field(default_factory=list)
+    replicas: dict[int, ReplicaInfo] = field(default_factory=dict)
 
 
 @dataclass
 class TimeSeriesInfo:
     """Time series metadata with datasets."""
 
-    id: int
     name: str
-    datasets: list[DatasetInfo] = field(default_factory=list)
+    datasets: dict[int, DatasetInfo] = field(default_factory=dict)
 
 
 @dataclass
@@ -131,127 +128,312 @@ class InfoResult:
     archive: ArchiveInfo
     hosts: list[HostInfo] = field(default_factory=list)
     keys: list[KeyInfo] = field(default_factory=list)
-    time_series: list[TimeSeriesInfo] = field(default_factory=list)
-    datasets: list[DatasetInfo] = field(default_factory=list)
+    time_series: dict[int, TimeSeriesInfo] = field(default_factory=dict)
+    datasets: dict[int, DatasetInfo] = field(default_factory=dict)
 
 
-def info_dataset(  # pylint: disable=too-many-locals
+# ruff: disable[W291]
+# fmt: off
+SELECT_DATA_CMD = """
+SELECT
+    d.rowid             AS ds_id, 
+    d.name              AS ds_name,
+    d.uuid              AS ds_uuid,
+    d.modtime           AS ds_modtime, 
+    d.deltime           AS ds_deltime,
+    d.fileformat        AS ds_fileformat,
+    d.tsid              AS ds_tsid,
+
+    r.rowid             AS rep_id,
+    r.hostid            AS hostid,
+    r.dirid             AS dirid,
+    r.archiveid         AS archiveid,
+    r.name              AS rep_name,
+    r.modtime           AS rep_modtime,
+    r.deltime           AS rep_deltime,
+    r.keyid             AS keyid,
+    r.size              AS rep_size,
+
+    rf.fileid           AS repfile_id,
+
+    f.name              AS file_name,
+    f.compression       AS compression,
+    f.lenorig           AS lenorig,
+    f.lencompressed     AS lencompressed,
+    f.modtime           AS file_modtime,
+    f.checksum          AS checksum,
+
+    acc.rowid           AS acc_id
+
+FROM dataset AS d
+JOIN replica AS r
+    ON r.datasetid = d.rowid
+LEFT JOIN repfiles AS rf
+    ON rf.replicaid = r.rowid
+LEFT JOIN file AS f
+    ON f.fileid = rf.fileid
+LEFT JOIN accuracy AS acc
+    ON acc.replicaid = r.rowid
+WHERE d.fileformat = 'ADIOS' OR d.fileformat = 'HDF5'
+ORDER BY d.rowid, r.rowid, f.fileid;
+"""
+
+SELECT_IMAGES_CMD = """
+SELECT
+    d.rowid             AS ds_id, 
+    d.name              AS ds_name,
+    d.uuid              AS ds_uuid,
+    d.modtime           AS ds_modtime, 
+    d.deltime           AS ds_deltime,
+    d.fileformat        AS ds_fileformat,
+    d.tsid              AS ds_tsid,
+
+    r.rowid             AS rep_id,
+    r.hostid            AS hostid,
+    r.dirid             AS dirid,
+    r.archiveid         AS archiveid,
+    r.name              AS rep_name,
+    r.modtime           AS rep_modtime,
+    r.deltime           AS rep_deltime,
+    r.keyid             AS keyid,
+    r.size              AS rep_size,
+
+    rf.fileid           AS repfile_id,
+
+    f.name              AS file_name,
+    f.compression       AS compression,
+    f.lenorig           AS lenorig,
+    f.lencompressed     AS lencompressed,
+    f.modtime           AS file_modtime,
+    f.checksum          AS checksum,
+
+    res.x               AS res_x,
+    res.y               AS res_y
+
+FROM dataset AS d
+JOIN replica AS r
+    ON r.datasetid = d.rowid
+LEFT JOIN repfiles AS rf
+    ON rf.replicaid = r.rowid
+LEFT JOIN file AS f
+    ON f.fileid = rf.fileid
+LEFT JOIN resolution AS res
+    ON res.replicaid = r.rowid
+WHERE d.fileformat = 'IMAGE'
+ORDER BY d.rowid, r.rowid, f.fileid;
+"""
+
+SELECT_TEXTS_CMD = """
+SELECT
+    d.rowid             AS ds_id, 
+    d.name              AS ds_name,
+    d.uuid              AS ds_uuid,
+    d.modtime           AS ds_modtime, 
+    d.deltime           AS ds_deltime,
+    d.fileformat        AS ds_fileformat,
+    d.tsid              AS ds_tsid,
+
+    r.rowid             AS rep_id,
+    r.hostid            AS hostid,
+    r.dirid             AS dirid,
+    r.archiveid         AS archiveid,
+    r.name              AS rep_name,
+    r.modtime           AS rep_modtime,
+    r.deltime           AS rep_deltime,
+    r.keyid             AS keyid,
+    r.size              AS rep_size,
+
+    rf.fileid           AS repfile_id,
+
+    f.name              AS file_name,
+    f.compression       AS compression,
+    f.lenorig           AS lenorig,
+    f.lencompressed     AS lencompressed,
+    f.modtime           AS file_modtime,
+    f.checksum          AS checksum
+
+FROM dataset AS d
+JOIN replica AS r
+    ON r.datasetid = d.rowid
+LEFT JOIN repfiles AS rf
+    ON rf.replicaid = r.rowid
+LEFT JOIN file AS f
+    ON f.fileid = rf.fileid
+WHERE d.fileformat = 'TEXT'
+ORDER BY d.rowid, r.rowid, f.fileid;
+"""
+
+# ruff: enable[W291]
+# fmt: on
+
+
+# pylint: disable=too-many-locals
+# pylint: disable=too-many-positional-arguments
+# pylint: disable=too-many-arguments
+def info_row(
     args: argparse.Namespace,
-    dataset: tuple,
-    cur: sqlite3.Cursor,
-    delete_condition_and: str,
+    info_data: InfoResult,
+    row,
+    accuracy: bool,
+    embedded: bool,
+    resolution: ResolutionInfo | None,
     dirs_archived: dict[int, bool],
-) -> DatasetInfo:
-    dataset_info = DatasetInfo(
-        id=dataset[0],
-        uuid=dataset[1],
-        name=dataset[2],
-        mod_time=dataset[3],
-        del_time=dataset[4],
-        file_format=dataset[5],
-    )
+) -> DatasetInfo | None:
 
-    if not args.list_replicas and not args.list_files:
-        return dataset_info
+    dataset_del_time = int(row["ds_deltime"])
+    replica_del_time = int(row["rep_deltime"])
+    if (dataset_del_time + replica_del_time) > 0 and not args.show_deleted:
+        return None
 
-    res2 = sql_execute(
-        cur,
-        "select rowid, hostid, dirid, archiveid, name, modtime, deltime, keyid, size from replica "
-        + 'where datasetid = "'
-        + str(dataset_info.id)
-        + '"'
-        + delete_condition_and
-        + " order by rowid",
-    )
-    replicas = res2.fetchall()
-    for rep in replicas:
-        replica_id = rep[0]
-        dir_id = rep[2]
-        del_time = rep[6]
-        key_id = rep[7]
-        if del_time > 0 and not args.show_deleted:
-            continue
+    dataset_id = int(row["ds_id"])
+    ts_id = int(row["ds_tsid"])
+    if ts_id > 0:
+        dataset_info = info_data.time_series[ts_id].datasets.setdefault(
+            dataset_id,
+            DatasetInfo(
+                row["ds_uuid"],
+                row["ds_name"],
+                int(row["ds_modtime"]),
+                dataset_del_time,
+                row["ds_fileformat"],
+            ),
+        )
+    else:
+        dataset_info = info_data.datasets.setdefault(
+            dataset_id,
+            DatasetInfo(
+                row["ds_uuid"],
+                row["ds_name"],
+                int(row["ds_modtime"]),
+                dataset_del_time,
+                row["ds_fileformat"],
+            ),
+        )
+
+    replica_id = int(row["rep_id"])
+    replica_info = dataset_info.replicas.get(replica_id)
+    if replica_info is None:
+        dir_id = int(row["dirid"])
+        key_id = int(row["keyid"])
 
         flags = ReplicaFlags(
-            deleted=del_time > 0,
+            deleted=replica_del_time > 0,
             encrypted=key_id > 0,
-            accuracy=False,
+            accuracy=accuracy,
             archive=dirs_archived.get(dir_id, False),
-            embedded=False,
+            embedded=embedded,
         )
-
-        if dataset_info.file_format in ("ADIOS", "HDF5"):
-            res3 = sql_execute(
-                cur,
-                f"select rowid from accuracy where replicaid = {replica_id} order by rowid",
-            )
-            if res3.fetchall():
-                flags.accuracy = True
-
-        if dataset_info.file_format in ("IMAGE", "TEXT"):
-            res3 = sql_execute(
-                cur,
-                f"select fileid from repfiles where replicaid = {replica_id} order by fileid",
-            )
-            if res3.fetchall():
-                flags.embedded = True
 
         replica_info = ReplicaInfo(
-            id=replica_id,
-            host_id=rep[1],
+            host_id=int(row["hostid"]),
             dir_id=dir_id,
-            archive_id=rep[3],
-            name=rep[4],
-            mod_time=rep[5],
-            del_time=del_time,
+            archive_id=int(row["archiveid"]),
+            name=row["rep_name"],
+            mod_time=int(row["rep_modtime"]),
+            del_time=replica_del_time,
             key_id=key_id,
-            size=rep[8],
+            size=int(row["rep_size"]),
             flags=flags,
         )
+        dataset_info.replicas[replica_id] = replica_info
 
-        if dataset_info.file_format == "IMAGE":
-            res3 = sql_execute(
-                cur,
-                'select rowid, x, y from resolution where replicaid = "' + str(replica_id) + '"' + " order by rowid",
+    if resolution is not None:
+        replica_info.resolution = resolution
+
+    if args.list_files and row["repfile_id"] is not None:
+        cks = row["checksum"] if args.show_checksum else ""
+        replica_info.files.append(
+            FileInfo(
+                name=row["file_name"],
+                len_orig=int(row["lenorig"]),
+                len_compressed=int(row["lencompressed"]),
+                mod_time=int(row["file_modtime"]),
+                checksum=cks,
             )
-            res = res3.fetchall()
-            if len(res) > 0:
-                replica_info.resolution = ResolutionInfo(x=res[0][1], y=res[0][2])
-
-        if args.list_files:
-            res3 = sql_execute(
-                cur,
-                "select file.name, file.lenorig, file.lencompressed, file.modtime, file.checksum "
-                "from file join repfiles on file.fileid = repfiles.fileid "
-                f"where repfiles.replicaid = {replica_id} order by file.fileid",
-            )
-            file_rows = res3.fetchall()
-            for file_row in file_rows:
-                cks = file_row[4] if args.show_checksum else ""
-                replica_info.files.append(
-                    FileInfo(
-                        name=file_row[0],
-                        len_orig=file_row[1],
-                        len_compressed=file_row[2],
-                        mod_time=file_row[3],
-                        checksum=cks,
-                    )
-                )
-
-        dataset_info.replicas.append(replica_info)
-
+        )
     return dataset_info
 
 
-def collect_info(args: argparse.Namespace, cur: sqlite3.Cursor) -> InfoResult:  # pylint: disable=too-many-locals
+def info_datas(  # pylint: disable=too-many-locals
+    args: argparse.Namespace,
+    info_data: InfoResult,
+    cur: sqlite3.Cursor,
+    dirs_archived: dict[int, bool],
+):
+    #
+    # ADIOS and HDF5 datasets
+    #
+    res = sql_execute(cur, SELECT_DATA_CMD)
+    for row in res:
+        info_row(
+            args,
+            info_data,
+            row,
+            accuracy=(row["acc_id"] is not None),
+            embedded=False,
+            resolution=None,
+            dirs_archived=dirs_archived,
+        )
+
+
+def info_images(  # pylint: disable=too-many-locals
+    args: argparse.Namespace,
+    info_data: InfoResult,
+    cur: sqlite3.Cursor,
+    dirs_archived: dict[int, bool],
+):
+    #
+    # IMAGE datasets
+    #
+    res = sql_execute(cur, SELECT_IMAGES_CMD)
+    for row in res:
+        res_x = int(row["res_x"])
+        res_y = int(row["res_y"])
+        dataset_info = info_row(
+            args,
+            info_data,
+            row,
+            accuracy=False,
+            embedded=(row["repfile_id"] is not None),
+            resolution=ResolutionInfo(res_x, res_y),
+            dirs_archived=dirs_archived,
+        )
+        if dataset_info is None:
+            continue
+
+
+def info_texts(  # pylint: disable=too-many-locals
+    args: argparse.Namespace,
+    info_data: InfoResult,
+    cur: sqlite3.Cursor,
+    dirs_archived: dict[int, bool],
+):
+    #
+    # TEXT datasets
+    #
+    res = sql_execute(cur, SELECT_TEXTS_CMD)
+    for row in res:
+        info_row(
+            args,
+            info_data,
+            row,
+            accuracy=False,
+            embedded=(row["repfile_id"] is not None),
+            resolution=None,
+            dirs_archived=dirs_archived,
+        )
+
+
+def collect_info(args: argparse.Namespace, con: sqlite3.Connection) -> InfoResult:  # pylint: disable=too-many-locals
+    cur = con.cursor()
     res = sql_execute(cur, "select id, name, version, modtime from info")
-    info_row = res.fetchone()
-    info_data = InfoResult(
+    row = res.fetchone()
+    info_datasets = InfoResult(
         archive=ArchiveInfo(
-            id=info_row[0],
-            name=info_row[1],
-            version=info_row[2],
-            mod_time=info_row[3],
+            id=row[0],
+            name=row[1],
+            version=row[2],
+            mod_time=row[3],
         )
     )
 
@@ -308,7 +490,7 @@ def collect_info(args: argparse.Namespace, cur: sqlite3.Cursor) -> InfoResult:  
                         has_archive=has_archive,
                     )
                 )
-        info_data.hosts.append(host_info)
+        info_datasets.hosts.append(host_info)
 
     #
     # Keys
@@ -316,38 +498,47 @@ def collect_info(args: argparse.Namespace, cur: sqlite3.Cursor) -> InfoResult:  
     res = sql_execute(cur, "select rowid, keyid from key order by rowid")
     keys = res.fetchall()
     for key in keys:
-        info_data.keys.append(KeyInfo(id=key[0], key=key[1]))
+        info_datasets.keys.append(KeyInfo(id=key[0], key=key[1]))
 
     #
     # Time Series
     #
-    res = sql_execute(cur, "select tsid, name from timeseries order by tsid")
-    timeseries = res.fetchall()
-    for ts in timeseries:
-        ts_info = TimeSeriesInfo(id=ts[0], name=ts[1])
-        res = sql_execute(
-            cur,
-            "select rowid, uuid, name, modtime, deltime, fileformat from dataset "
-            f"where tsid = {ts[0]} " + delete_condition_and,
-        )
-        datasets = res.fetchall()
-        for dataset in datasets:
-            ts_info.datasets.append(info_dataset(args, dataset, cur, delete_condition_and, dirs_archived))
-        info_data.time_series.append(ts_info)
+    res_ts = sql_execute(cur, "select tsid, name from timeseries order by tsid")
+    for ts in res_ts:
+        ts_id = int(ts[0])
+        ts_info = TimeSeriesInfo(name=ts[1])
+        info_datasets.time_series[ts_id] = ts_info
 
     #
     # Datasets
     #
-    res = sql_execute(
-        cur,
-        "select rowid, uuid, name, modtime, deltime, fileformat from dataset "
-        "where tsid = 0 " + delete_condition_and + " order by rowid",
-    )
-    datasets = res.fetchall()
-    for dataset in datasets:
-        info_data.datasets.append(info_dataset(args, dataset, cur, delete_condition_and, dirs_archived))
+    if not args.list_replicas and not args.list_files:
+        res_ds = sql_execute(
+            cur,
+            "select rowid, uuid, name, modtime, deltime, fileformat, tsid from dataset "
+            + delete_condition_where
+            + " order by rowid",
+        )
+        for dataset in res_ds:
+            dataset_id = int(dataset[0])
+            dataset_info = DatasetInfo(
+                uuid=dataset[1],
+                name=dataset[2],
+                mod_time=dataset[3],
+                del_time=dataset[4],
+                file_format=dataset[5],
+            )
+            tsid = dataset[6]
+            if tsid > 0:
+                info_datasets.time_series[ts_id].datasets[dataset_id] = dataset_info
+            else:
+                info_datasets.datasets[dataset_id] = dataset_info
+    else:
+        info_datas(args, info_datasets, cur, dirs_archived)
+        info_texts(args, info_datasets, cur, dirs_archived)
+        info_images(args, info_datasets, cur, dirs_archived)
 
-    return info_data
+    return info_datasets
 
 
 def format_info_dataset_lines(  # pylint: disable=too-many-locals
@@ -355,12 +546,12 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
 ) -> list[str]:
     lines = []
     time_str = timestamp_to_str(dataset_info.mod_time)
-    dataset_line = f"    {dataset_info.uuid}  {dataset_info.file_format:5}  {time_str}   {dataset_info.name}"
+    dataset_line = f"    {dataset_info.uuid}   {dataset_info.file_format:6}  {time_str}   {dataset_info.name}"
     if dataset_info.del_time > 0:
         dataset_line += f"  - deleted {timestamp_to_str(dataset_info.del_time)}"
     lines.append(dataset_line)
 
-    for replica_info in dataset_info.replicas:
+    for replica_id, replica_info in dataset_info.replicas.items():
         flags = replica_info.flags
         flag_del = "D" if flags.deleted else "-"
         flag_encrypted = "k" if flags.encrypted else "-"
@@ -368,11 +559,13 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
         flag_archive = "A" if flags.archive else "-"
         flag_remote = "e" if flags.embedded else "r"
         replica_line = (
-            f"  {replica_info.id:>7} {flag_remote}{flag_encrypted}{flag_accuracy}{flag_archive}{flag_del} "
+            f"  {replica_id:>7} {flag_remote}{flag_encrypted}{flag_accuracy}{flag_archive}{flag_del} "
             f"{replica_info.dir_id}"
         )
         if replica_info.archive_id > 0:
             replica_line += f".{replica_info.archive_id}"
+        else:
+            replica_line += "  "
 
         if dataset_info.file_format == "IMAGE" and replica_info.resolution is not None:
             res = replica_info.resolution
@@ -389,9 +582,9 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
 
         for file_info in replica_info.files:
             if replica_info.key_id > 0:
-                prefix = " " * 28 + f"k{replica_info.key_id:<3}"
+                prefix = " " * 30 + f"k{replica_info.key_id:<3}"
             else:
-                prefix = " " * 32
+                prefix = " " * 34
             file_line = prefix + f"{sizeof_fmt(file_info.len_compressed):>11}  {timestamp_to_str(file_info.mod_time)}"
             if file_info.checksum:
                 file_line += f"         {file_info.checksum}  {file_info.name}"
@@ -430,15 +623,15 @@ def format_info(info_data: InfoResult) -> str:
 
     if info_data.time_series:
         lines.append("Time-series and their datasets:")
-        for ts_info in info_data.time_series:
+        for _ts_id, ts_info in info_data.time_series.items():
             lines.append(f"  {ts_info.name}")
-            for dataset_info in ts_info.datasets:
+            for _ds_id, dataset_info in sorted(ts_info.datasets.items()):
                 lines.extend(format_info_dataset_lines(dataset_info))
         lines.append("")
 
     if info_data.datasets:
         lines.append("Other Datasets:")
-        for dataset_info in info_data.datasets:
+        for _ds_id, dataset_info in sorted(info_data.datasets.items()):
             lines.extend(format_info_dataset_lines(dataset_info))
 
     return "\n".join(lines)

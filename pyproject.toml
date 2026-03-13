@@ -85,7 +85,7 @@ exclude = [
 [dependency-groups]
 dev = [
     "mypy (>=1.19.1)",
-    "ruff (>=0.14.4,<0.15.0)",
+    "ruff (>=0.15.6)",
     "pytest (>=9.0.1,<10.0.0)",
     "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)",
     "types-paramiko (>=4.0.0.20250822,<5.0.0.0)",
