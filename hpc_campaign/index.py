@@ -342,9 +342,9 @@ class Index:
                 # print(f"        Use last dsname {last_used_dsname} for {ename}")
                 entryname = ename[len(last_used_dsname) + 1 :]
             else:
-                for ds in info.datasets:
+                for ds_id, ds in info.datasets.items():
                     if ename.startswith(ds.name):
-                        dsid = ds.id
+                        dsid = ds_id
                         last_used_dsname = ds.name
                         entryname = ename[len(ds.name) + 1 :]
                         # print(f"        Use new dsname {last_used_dsname} for {ename}")
@@ -367,9 +367,9 @@ class Index:
         archiveid = self._add_archive(archive, "    ")
 
         dsdict: dict[int, tuple[int, str]] = {}
-        for ds in info_res.datasets:
-            datasetid = self._add_dataset(archiveid, ds.id, ds.name, DatasetType[ds.file_format], "    ")
-            dsdict[ds.id] = (datasetid, ds.name)
+        for ds_id, ds in info_res.datasets.items():
+            datasetid = self._add_dataset(archiveid, ds_id, ds.name, DatasetType[ds.file_format], "    ")
+            dsdict[ds_id] = (datasetid, ds.name)
 
         # ds.id, dsid: the dataset integer ID in the archive file itself
         # datasetid: rowid of the datasets table in this database
