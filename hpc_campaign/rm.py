@@ -9,12 +9,18 @@ from .utils import check_campaign_store, input_yes_or_no, matches_pattern, set_d
 
 
 def rm(
-    *patterns, wildcard: bool = False, campaign_store: str = "", interactive: bool = False, force: bool = False
+    *patterns,
+    wildcard: bool = False,
+    campaign_store: str = "",
+    interactive: bool = False,
+    force: bool = False,
+    index: bool = False,
 ) -> list[str]:
     args = argparse.Namespace()
     args.wildcard = wildcard
     args.interactive = interactive
     args.force = force
+    args.index = index
     args.pattern = []
     for p in patterns:
         args.pattern.append(p)
