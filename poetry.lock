@@ -2,28 +2,26 @@
 
 [[package]]
 name = "adios2"
-version = "2.11.0.1012"
+version = "2.12.0.1001"
 description = "The Adaptable Input Output System version 2"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "adios2-2.11.0.1012-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:686cf4948022ba81fa2822bbe4ff8cf18019aebe54c5e14c9c71fee3ce713660"},
-    {file = "adios2-2.11.0.1012-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:21788dd10deea2b1168ff9c9926e7b14c355c39a7a03ab74f202c46c4a9db133"},
-    {file = "adios2-2.11.0.1012-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:852b42f6b5c5fec0ddcf8ca1a17ad57255c2bd1e1b442ecf9ff9f632da565065"},
-    {file = "adios2-2.11.0.1012-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:7fa73b1ecb3c7f5ae138ee9b78dbf74c8c602e5768a03998cfedec4efc4f4aef"},
-    {file = "adios2-2.11.0.1012-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:0c3a91fa76fd53d857289ed95cf07a372c8e11b1a798701968fb52be79b153d2"},
-    {file = "adios2-2.11.0.1012-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:4f6657cfa85a5f79458e4756260d214a137863364fbdf2a132ad70cdf08930d8"},
-    {file = "adios2-2.11.0.1012-cp38-cp38-manylinux_2_28_x86_64.whl", hash = "sha256:b07f7b6c63ac8ce3ddc1095cf31e228882df535ce35a33b2be89610d59fa9d80"},
-    {file = "adios2-2.11.0.1012-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:02fe30a6eb9d800689398c7505e59b1a4c6c2ef9c89b6f1b255e78b8ef49e048"},
-    {file = "adios2-2.11.0.1012.tar.gz", hash = "sha256:d44c5422d3b796a2932415e56ce899ea06cda95a3ba7d3ec9afcedd35e461154"},
+    {file = "adios2-2.12.0.1001-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:c255a7ddd7c5329a380a1c7768c2610b301ebad0e38d605dee2eb4f447109949"},
+    {file = "adios2-2.12.0.1001-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:195d1c68d6f604f901fa09a98c98f5f8c81ab03dfff66e3775990944eba05e10"},
+    {file = "adios2-2.12.0.1001-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:2ba607d8856734238a42d00396b907677ecc9eff95fbbfe1cb34c8250373b56b"},
+    {file = "adios2-2.12.0.1001-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:5808a91e745e7bbdc4ca85d12e40500db5b88a6efd604d9fbebe7f0c8e315100"},
+    {file = "adios2-2.12.0.1001-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:80a75c4f9011cacb0cdf66c9b142085d9861a40b1a176931677811656af3b95a"},
+    {file = "adios2-2.12.0.1001-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:3ba53eb57967bdb6fb4450c3dfd9c9b3ef8e8e7309b41096902cf3210ca2e95d"},
+    {file = "adios2-2.12.0.1001.tar.gz", hash = "sha256:b8c91c6803c960f09fec8f1fb860f1d451277aaaad9b6171644f1b16952fa0b4"},
 ]
 
 [package.dependencies]
 numpy = ">=1.22"
 
 [package.extras]
-dev = ["black", "pip (>=21.3)"]
+dev = ["pip (>=21.3)", "ruff"]
 
 [[package]]
 name = "astroid"
@@ -1742,4 +1740,4 @@ markers = {main = "python_version == \"3.10\""}
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "b47e9dfbeb63503445109ead6cde898e2a854cec5d5c6da11b8d0216824259d3"
+content-hash = "4f4fd11bdfb3fc6e1cd77ec1f78c3dee22a4264f4e5a7df3164f95a437fbff5e"
