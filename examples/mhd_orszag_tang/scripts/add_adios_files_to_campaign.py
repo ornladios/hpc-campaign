@@ -43,8 +43,10 @@ def _import_hpc_campaign():
         existing_path = getattr(existing, "__path__", []) if existing is not None else []
         existing_locations = [str(entry) for entry in existing_path]
         expected_package_dir = str(local_checkout / "hpc_campaign")
-        if existing is not None and expected_package_dir not in existing_locations and not str(existing_file).startswith(
-            expected_package_dir
+        if (
+            existing is not None
+            and expected_package_dir not in existing_locations
+            and not str(existing_file).startswith(expected_package_dir)
         ):
             sys.modules.pop("hpc_campaign", None)
             stale_submodules = [name for name in sys.modules if name.startswith("hpc_campaign.")]
