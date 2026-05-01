@@ -121,10 +121,7 @@ def parse_args() -> argparse.Namespace:
         "--bpName",
         action="append",
         default=["output.bp"],
-        help=(
-            "BP dataset name to add. Can be repeated or comma-separated. "
-            "Default: output.bp"
-        ),
+        help=("BP dataset name to add. Can be repeated or comma-separated. Default: output.bp"),
     )
     parser.add_argument("--recreate", action="store_true", help="Truncate the existing campaign first.")
     parser.add_argument("--dryRun", action="store_true", help="Print datasets that would be added.")

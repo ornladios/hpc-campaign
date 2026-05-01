@@ -109,10 +109,7 @@ def processFile(inputPath: Path, outputPath: Path) -> tuple[int, list[str]]:
                 try:
                     arr = np.asarray(source.read(varName)).squeeze()
                 except Exception as exc:  # noqa: BLE001
-                    print(
-                        f"[step {step_index}] skipping '{varName}': "
-                        f"read failed ({type(exc).__name__}: {exc})"
-                    )
+                    print(f"[step {step_index}] skipping '{varName}': read failed ({type(exc).__name__}: {exc})")
                     skipped_read_failed.append(varName)
                     continue
 
@@ -142,25 +139,13 @@ def processFile(inputPath: Path, outputPath: Path) -> tuple[int, list[str]]:
                 series.append(float(step_stats.get(outName, float("nan"))))
 
             skipped_total = len(skipped_non_numeric) + len(skipped_read_failed) + len(skipped_empty)
-            print(
-                f"[step {step_index}] vars={len(variable_names)} "
-                f"written={len(step_stats)} skipped={skipped_total}"
-            )
+            print(f"[step {step_index}] vars={len(variable_names)} written={len(step_stats)} skipped={skipped_total}")
             if skipped_non_numeric:
-                print(
-                    f"  non-numeric({len(skipped_non_numeric)}): "
-                    f"{_format_skip_list(skipped_non_numeric)}"
-                )
+                print(f"  non-numeric({len(skipped_non_numeric)}): {_format_skip_list(skipped_non_numeric)}")
             if skipped_read_failed:
-                print(
-                    f"  read-failed({len(skipped_read_failed)}): "
-                    f"{_format_skip_list(skipped_read_failed)}"
-                )
+                print(f"  read-failed({len(skipped_read_failed)}): {_format_skip_list(skipped_read_failed)}")
             if skipped_empty:
-                print(
-                    f"  empty({len(skipped_empty)}): "
-                    f"{_format_skip_list(skipped_empty)}"
-                )
+                print(f"  empty({len(skipped_empty)}): {_format_skip_list(skipped_empty)}")
 
             written_steps += 1
 
@@ -242,10 +227,7 @@ def _process_recursive_inputs(input_dir: Path, input_names: list[str]) -> None:
             total_steps += written_steps
             all_written_vars.update(written_vars)
             processed += 1
-            print(
-                f"Completed file: steps={written_steps}, "
-                f"output_variables={len(written_vars)}"
-            )
+            print(f"Completed file: steps={written_steps}, output_variables={len(written_vars)}")
         except Exception as exc:  # noqa: BLE001
             failed.append(str(inputPath))
             print(f"ERROR: failed processing {inputPath}: {type(exc).__name__}: {exc}")
