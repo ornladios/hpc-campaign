@@ -8,12 +8,14 @@ Included here:
 - `CMakeLists.txt`
 - `src/`
 - `scripts/run_ensembles.py`
+- `scripts/adios_stats.py`
+- `scripts/add_adios_files_to_campaign.py`
+- `scripts/render_adios_visualizations_to_campaign.py`
 - `ensembles/`
 
 Not yet moved into this repo:
 
 - rendering and analysis scripts
-- campaign creation helper scripts
 - generated run output directories
 
 ## Capabilities
@@ -134,7 +136,6 @@ It expects a `--config` JSON file describing the ensemble.
 
 Available configs in `ensembles/`:
 
-- `fast_mpi_ensemble.json`
 - `resolution_sweep.json`
 - `simple.json`
 
@@ -159,7 +160,7 @@ python3 scripts/run_ensembles.py --binary ./build/ot_mhd --config ensembles/simp
 Override ranks for all selected runs:
 
 ```bash
-python3 scripts/run_ensembles.py --binary ./build/ot_mhd --config ensembles/fast_mpi_ensemble.json --ranks 8
+python3 scripts/run_ensembles.py --binary ./build/ot_mhd --config ensembles/simple.json --ranks 8
 ```
 
 Override the ensemble output root:
@@ -176,6 +177,39 @@ python3 scripts/run_ensembles.py --binary ./build/ot_mhd --config ensembles/reso
 
 The ensemble configs write run output under `runs/` relative to this example
 directory unless `--output-dir` is provided.
+
+## Campaign workflow
+
+Add all `output.bp` files from an ensemble run into a campaign:
+
+```bash
+source ~/venv/bin/activate
+python3 ./scripts/add_adios_files_to_campaign.py \
+  ./runs_resolution_sweep \
+  --archive mhd_resolution_sweep.aca
+```
+
+Render one variable from every dataset into the campaign:
+
+```bash
+python3 ./scripts/render_adios_visualizations_to_campaign.py \
+  --archive mhd_resolution_sweep.aca \
+  --allDatasets \
+  --datasetPattern '*/output.bp' \
+  --variable rho \
+  --data_root ./runs_resolution_sweep
+```
+
+Render all variables from one dataset. Scalar variables are rendered as
+time-series plots over steps, while array variables are rendered as heatmaps:
+
+```bash
+python3 ./scripts/render_adios_visualizations_to_campaign.py \
+  --archive mhd_resolution_sweep.aca \
+  --dataset hll_128/output.bp \
+  --allVariables \
+  --data_root ./runs_resolution_sweep
+```
 
 ## TL;DR
 
