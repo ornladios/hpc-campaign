@@ -124,6 +124,59 @@ Example usage:
 Additional options for images include:
 * `name="<NAME>"` representation name for the image in the campaign hierarchy
 
+**Derived visualizations**
+
+Use ``visualization`` when an image or image sequence is derived from variables
+in a data set already in the campaign. The method adds the image data and also
+records explicit metadata that links the visualization back to the source data
+set and variable uses. This is useful in notebooks where a user reads a
+variable, performs analysis, creates figures, and wants to save those figures
+back into the campaign.
+
+Example usage:
+
+.. code-block:: python
+
+  manager.data("runs/run001/output.bp", name="run001/output.bp")
+
+  # png_frames can be paths, PNG/JPEG bytes, PIL Images, or matplotlib Figures.
+  # replace=True makes rerunning a notebook cell update the same visualization.
+  manager.visualization(
+      images=png_frames,
+      source_dataset="run001/output.bp",
+      name="density",
+      kind="heatmap",
+      color_by="rho",
+      steps=[0, 1, 2],
+      replace=True,
+  )
+
+  manager.visualization(
+      images=overlay_frames,
+      source_dataset="run001/output.bp",
+      name="density_current_overlay",
+      kind="heatmap-contour",
+      color_by="rho",
+      contour_by="current_z",
+      replace=True,
+  )
+
+  manager.visualization(
+      images=line_plot,
+      source_dataset="run001/output.bp",
+      name="mass_over_time",
+      kind="line-plot",
+      x_axis="time",
+      y_axis="mass",
+      replace=True,
+  )
+
+If ``name`` is a short token, the visualization sequence is stored under
+``<source_dataset>/visualizations/<name>``. For advanced use, pass
+``sequence_name`` to provide the exact sequence name. If image names are not
+provided explicitly, they are generated as children of the sequence name, using
+``steps`` when supplied.
+
 **4. text**
 
 Add one or more text files to the archive. If requested, text files are stored within the archive. In that case, zlib is used to compress the text file.
@@ -342,5 +395,4 @@ Comparing the campaign archive size to the data it points to can be done by the 
 
   $ du -sh /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
   127K     /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
-
 

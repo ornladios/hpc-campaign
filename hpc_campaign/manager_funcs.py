@@ -10,12 +10,14 @@
 import argparse
 import csv
 import glob
+import json
 import re
 import sqlite3
 import sys
 import uuid
 import zlib
 from hashlib import sha1
+from io import BytesIO
 from os import chdir, getcwd, remove, stat
 from os.path import basename, exists, isdir, join
 from pathlib import Path
@@ -319,6 +321,259 @@ def add_resolution_to_archive(
     return row_id
 
 
+def ensure_visualization_tables(cur: sqlite3.Cursor, con: sqlite3.Connection):
+    sql_execute(
+        cur,
+        "create table if not exists visualization_sequence"
+        + "(visid INTEGER PRIMARY KEY, name TEXT UNIQUE, vistype TEXT, thumbnail_itemuuid TEXT, metadata TEXT)",
+    )
+    sql_execute(
+        cur,
+        "create table if not exists visualization_variable"
+        + " (visid INT, datasetid INT, variable_name TEXT, role TEXT, "
+        + "PRIMARY KEY (visid, datasetid, variable_name, role))",
+    )
+    sql_execute(
+        cur,
+        "create table if not exists visualization_item"
+        + " (visid INT, item_order INT, item_type TEXT, item_uuid TEXT, metadata TEXT, "
+        + "PRIMARY KEY (visid, item_order))",
+    )
+    sql_commit(con)
+
+
+def _serialize_visualization_metadata(metadata) -> str | None:
+    if metadata is None:
+        return None
+    if isinstance(metadata, str):
+        metadata_str = metadata.strip()
+        return metadata_str or None
+    return json.dumps(metadata, sort_keys=True)
+
+
+def _resolve_live_dataset(cur: sqlite3.Cursor, dataset_name: str) -> tuple[int, str, str]:
+    res = sql_execute(
+        cur,
+        "select rowid, uuid, fileformat from dataset where name = ? and deltime = 0",
+        (dataset_name,),
+    )
+    row = res.fetchone()
+    if row is None:
+        raise LookupError(f"Dataset not found or deleted: {dataset_name}")
+    return int(row[0]), str(row[1]), str(row[2])
+
+
+def _resolve_live_dataset_by_uuid(cur: sqlite3.Cursor, dataset_uuid: str) -> tuple[int, str, str]:
+    res = sql_execute(
+        cur,
+        "select rowid, name, fileformat from dataset where uuid = ? and deltime = 0 order by rowid limit 1",
+        (dataset_uuid,),
+    )
+    row = res.fetchone()
+    if row is None:
+        raise LookupError(f"Dataset UUID not found or deleted: {dataset_uuid}")
+    return int(row[0]), str(row[1]), str(row[2])
+
+
+def _normalize_visualization_variable_specs(variables, default_source_dataset: str = "") -> list[dict[str, str]]:
+    if not variables:
+        raise ValueError("visualization_sequence requires at least one variable specification")
+
+    normalized: list[dict[str, str]] = []
+    for entry in variables:
+        variable_name = ""
+        role = "primary"
+        source_dataset_name = default_source_dataset
+
+        if isinstance(entry, str):
+            variable_name = entry.strip()
+        elif isinstance(entry, dict):
+            variable_name = str(entry.get("name", "") or "").strip()
+            role = str(entry.get("role", entry.get("use", "primary")) or "primary").strip()
+            source_dataset_name = str(
+                entry.get("source_dataset", default_source_dataset) or default_source_dataset
+            ).strip()
+        elif isinstance(entry, (list, tuple)):
+            if len(entry) == 0:
+                continue
+            variable_name = str(entry[0]).strip()
+            if len(entry) >= 2:
+                role = str(entry[1] or "primary").strip()
+            if len(entry) >= 3:
+                source_dataset_name = str(entry[2] or default_source_dataset).strip()
+        else:
+            raise ValueError(f"Unsupported visualization variable spec: {entry!r}")
+
+        if not variable_name:
+            raise ValueError(f"Invalid visualization variable spec without a name: {entry!r}")
+        if not role:
+            role = "primary"
+        if not source_dataset_name:
+            raise ValueError(
+                f"Visualization variable '{variable_name}' must specify source_dataset or use source_dataset=..."
+            )
+        normalized.append(
+            {
+                "name": variable_name,
+                "role": role,
+                "source_dataset": source_dataset_name,
+            }
+        )
+
+    if not normalized:
+        raise ValueError("visualization_sequence requires at least one variable specification")
+    return normalized
+
+
+def _normalize_visualization_items(items) -> list[dict[str, str | None]]:
+    if not items:
+        raise ValueError("visualization_sequence requires at least one item")
+
+    normalized: list[dict[str, str | None]] = []
+    for item in items:
+        item_type = "IMAGE"
+        item_uuid = ""
+        item_name = ""
+        item_metadata = None
+
+        if isinstance(item, str):
+            item_name = item.strip()
+        elif isinstance(item, dict):
+            item_type = str(item.get("type", "IMAGE") or "IMAGE").strip().upper()
+            item_uuid = str(item.get("uuid", "") or "").strip()
+            item_name = str(item.get("name", "") or "").strip()
+            item_metadata = _serialize_visualization_metadata(item.get("metadata"))
+        else:
+            raise ValueError(f"Unsupported visualization item spec: {item!r}")
+
+        if item_type != "IMAGE":
+            raise ValueError(f"Unsupported visualization item type: {item_type}. Only IMAGE is supported currently")
+        if not item_uuid and not item_name:
+            raise ValueError(f"Visualization item requires either name or uuid: {item!r}")
+        normalized.append(
+            {
+                "type": item_type,
+                "uuid": item_uuid or None,
+                "name": item_name or None,
+                "metadata": item_metadata,
+            }
+        )
+
+    return normalized
+
+
+def add_visualization_sequence(  # pylint: disable=too-many-statements
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    con: sqlite3.Connection,
+) -> int:
+    ensure_visualization_tables(cur, con)
+
+    sequence_name = str(args.name or "").strip()
+    if not sequence_name:
+        raise ValueError("visualization_sequence requires a non-empty name")
+
+    vis_type = str(args.vis_type or "").strip()
+    if not vis_type:
+        raise ValueError("visualization_sequence requires a non-empty vis_type")
+
+    default_source_dataset = str(getattr(args, "source_dataset", "") or "").strip()
+    variable_specs = _normalize_visualization_variable_specs(args.variables, default_source_dataset)
+    item_specs = _normalize_visualization_items(args.items)
+
+    source_dataset_ids: dict[str, int] = {}
+    for variable_spec in variable_specs:
+        dataset_name = variable_spec["source_dataset"]
+        if dataset_name not in source_dataset_ids:
+            dataset_id, _dataset_uuid, _fileformat = _resolve_live_dataset(cur, dataset_name)
+            source_dataset_ids[dataset_name] = dataset_id
+
+    thumbnail_itemuuid = None
+    thumbnail_name = str(getattr(args, "thumbnail_name", "") or "").strip()
+    thumbnail_uuid = str(getattr(args, "thumbnail_uuid", "") or "").strip()
+    if thumbnail_uuid:
+        _thumb_id, _thumb_name, thumb_fileformat = _resolve_live_dataset_by_uuid(cur, thumbnail_uuid)
+        if thumb_fileformat != "IMAGE":
+            raise ValueError(f"thumbnail_uuid must refer to an IMAGE dataset, not {thumb_fileformat}")
+        thumbnail_itemuuid = thumbnail_uuid
+    elif thumbnail_name:
+        _thumb_id, thumbnail_itemuuid, thumb_fileformat = _resolve_live_dataset(cur, thumbnail_name)
+        if thumb_fileformat != "IMAGE":
+            raise ValueError(f"thumbnail_name must refer to an IMAGE dataset, not {thumb_fileformat}")
+
+    resolved_items: list[dict[str, str | None]] = []
+    for item_spec in item_specs:
+        item_uuid = item_spec["uuid"]
+        item_name = item_spec["name"]
+        if item_uuid:
+            _item_id, _resolved_name, item_fileformat = _resolve_live_dataset_by_uuid(cur, str(item_uuid))
+        else:
+            _item_id, item_uuid, item_fileformat = _resolve_live_dataset(cur, str(item_name))
+        if item_fileformat != "IMAGE":
+            raise ValueError(f"Visualization item must refer to an IMAGE dataset, not {item_fileformat}")
+        resolved_items.append(
+            {
+                "type": str(item_spec["type"]),
+                "uuid": str(item_uuid),
+                "metadata": item_spec["metadata"],
+            }
+        )
+
+    metadata_text = _serialize_visualization_metadata(args.metadata)
+
+    res = sql_execute(cur, "select visid from visualization_sequence where name = ?", (sequence_name,))
+    row = res.fetchone()
+    visid = None
+    if row is not None:
+        visid = int(row[0])
+        if not args.replace:
+            raise ValueError(f"Visualization sequence already exists: {sequence_name}")
+        sql_execute(
+            cur,
+            "update visualization_sequence set vistype = ?, thumbnail_itemuuid = ?, metadata = ? where visid = ?",
+            (vis_type, thumbnail_itemuuid, metadata_text, visid),
+        )
+        sql_execute(cur, "delete from visualization_variable where visid = ?", (visid,))
+        sql_execute(cur, "delete from visualization_item where visid = ?", (visid,))
+    else:
+        cur_vis = sql_execute(
+            cur,
+            "insert into visualization_sequence (name, vistype, thumbnail_itemuuid, metadata) "
+            "values (?, ?, ?, ?) returning visid",
+            (sequence_name, vis_type, thumbnail_itemuuid, metadata_text),
+        )
+        visid = int(cur_vis.fetchone()[0])
+
+    for variable_spec in variable_specs:
+        source_dataset_name = variable_spec["source_dataset"]
+        sql_execute(
+            cur,
+            "insert into visualization_variable (visid, datasetid, variable_name, role) values (?, ?, ?, ?)",
+            (
+                visid,
+                source_dataset_ids[source_dataset_name],
+                variable_spec["name"],
+                variable_spec["role"],
+            ),
+        )
+
+    for item_order, item_spec in enumerate(resolved_items):
+        sql_execute(
+            cur,
+            "insert into visualization_item (visid, item_order, item_type, item_uuid, metadata) values (?, ?, ?, ?, ?)",
+            (
+                visid,
+                item_order,
+                item_spec["type"],
+                item_spec["uuid"],
+                item_spec["metadata"],
+            ),
+        )
+
+    sql_commit(con)
+    return visid
+
+
 def process_data(
     args: argparse.Namespace,
     cur: sqlite3.Cursor,
@@ -489,7 +744,7 @@ def process_image(
                 dir_id,
                 0,
                 key_id,
-                join("thumbnails", args.file),
+                join("thumbnails", args.file.lstrip("/")),
                 cur,
                 ds_id,
                 now,
@@ -508,6 +763,95 @@ def process_image(
             )
             add_resolution_to_archive(thumb_rep_id, imgres[0], imgres[1], cur, indent="  ")
             remove(thumbfilename)
+
+
+def process_image_data(
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    host_id: int,
+    dir_id: int,
+    key_id: int,
+    dirpath: str,
+    location: str,
+):
+    image_bytes = bytes(args.image_data)
+    image_format = str(args.image_format or "").strip()
+    if not image_format:
+        raise ValueError("image_data requires image_format")
+
+    suffix = "." + image_format.lower().lstrip(".")
+    if args.name is not None:
+        dataset = args.name
+        unique_id = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + dataset).hex
+    else:
+        checksum = sha1(image_bytes).hexdigest()
+        unique_id = uuid.uuid5(uuid.NAMESPACE_OID, checksum).hex
+        dataset = f"memory-images/image-{unique_id[:12]}{suffix}"
+
+    replica_name = getattr(args, "replica_name", "") or join("memory-images", f"{unique_id}{suffix}")
+
+    mt = time_ns()
+    filesize = len(image_bytes)
+    print(f"Process in-memory image {dataset}")
+
+    img = Image.open(BytesIO(image_bytes))
+    img.load()
+    imgres = img.size
+
+    ds_id = add_dataset_to_archive(dataset, cur, unique_id, "IMAGE", mt, indent="  ")
+    rep_id = add_replica_to_archive(host_id, dir_id, 0, key_id, replica_name, cur, ds_id, mt, filesize, indent="  ")
+    add_resolution_to_archive(rep_id, imgres[0], imgres[1], cur, indent="  ")
+
+    resname = f"{imgres[0]}x{imgres[1]}{suffix}"
+    add_file_to_archive(args, "", cur, rep_id, mt, resname, compress=False, content=image_bytes, indent="  ")
+
+    if args.thumbnail is not None:
+        print(f"  Make thumbnail image with resolution {args.thumbnail}")
+        thumb_img = img.copy()
+        thumb_img.thumbnail(args.thumbnail)
+        thumb_res = thumb_img.size
+        thumb_buffer = BytesIO()
+        thumb_img.save(thumb_buffer, format=image_format.upper())
+        thumb_bytes = thumb_buffer.getvalue()
+        thumb_now = time_ns()
+        thumb_rep_id = add_replica_to_archive(
+            host_id,
+            dir_id,
+            0,
+            key_id,
+            join("thumbnails", replica_name),
+            cur,
+            ds_id,
+            thumb_now,
+            len(thumb_bytes),
+            indent="  ",
+        )
+        thumb_resname = f"{thumb_res[0]}x{thumb_res[1]}{suffix}"
+        add_file_to_archive(
+            args,
+            "",
+            cur,
+            thumb_rep_id,
+            thumb_now,
+            thumb_resname,
+            compress=False,
+            content=thumb_bytes,
+            indent="  ",
+        )
+        add_resolution_to_archive(thumb_rep_id, thumb_res[0], thumb_res[1], cur, indent="  ")
+
+
+def add_image_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+    long_host_name, short_host_name = get_host_name(args)
+
+    host_id = add_host_name(long_host_name, short_host_name, cur)
+    key_id = add_key_id(args.encryption_key_id, cur)
+    rootdir = getcwd()
+    dir_id = add_directory(host_id, rootdir, cur)
+    sql_commit(con)
+
+    process_image_data(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
+    sql_commit(con)
 
 
 # pylint: disable=too-many-statements
@@ -1128,6 +1472,7 @@ def create_tables(campaign_file_name: str, con: sqlite3.Connection):
         cur,
         "create table archive" + "(dirid INT, tarname TEXT,system TEXT, notes BLOB, PRIMARY KEY (dirid, tarname))",
     )
+    ensure_visualization_tables(cur, con)
     sql_execute(
         cur,
         "create table archiveidx"
