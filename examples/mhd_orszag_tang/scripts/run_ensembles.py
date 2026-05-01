@@ -131,16 +131,10 @@ def main() -> int:
         else:
             run_output_dir_cfg = Path(str(run.get("output_dir", ensemble_output_root / name)))
             run_output_dir = (
-                run_output_dir_cfg
-                if run_output_dir_cfg.is_absolute()
-                else (base_dir / run_output_dir_cfg)
+                run_output_dir_cfg if run_output_dir_cfg.is_absolute() else (base_dir / run_output_dir_cfg)
             ).resolve()
 
-        per_run = {
-            k: v
-            for k, v in run.items()
-            if k not in {"name", "ranks", "output", "output_dir", "mpi_launcher"}
-        }
+        per_run = {k: v for k, v in run.items() if k not in {"name", "ranks", "output", "output_dir", "mpi_launcher"}}
         merged = dict(common)
         merged.update(per_run)
         if args.prepend_var_names is not None:
