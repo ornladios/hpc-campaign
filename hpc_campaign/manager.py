@@ -10,16 +10,21 @@
 import argparse
 import sqlite3
 import sys
+from io import BytesIO
 from os.path import exists
 from pathlib import Path
 from time import time_ns
+
+from PIL import Image as PILImage
 
 from .info import InfoResult, collect_info, print_info
 from .key import read_key
 from .manager_args import ArgParser
 from .manager_funcs import (
     add_archival_storage,
+    add_image_data,
     add_time_series,
+    add_visualization_sequence,
     archive_dataset,
     check_archival_storage_system_name,
     create_tables,
@@ -201,6 +206,31 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
 
+    def image_data(
+        self,
+        data: bytes,
+        image_format: str,
+        name: str | None = None,
+        thumbnail: list[int] | tuple[int, int] | None = None,
+        replica_name: str | None = None,
+    ):
+        thumb_value = None
+        if thumbnail is not None:
+            thumb_value = [int(thumbnail[0]), int(thumbnail[1])]
+        cmd_args = self._build_command_args(
+            "image_data",
+            {
+                "image_data": bytes(data),
+                "image_format": image_format,
+                "name": name,
+                "thumbnail": thumb_value,
+                "replica_name": replica_name,
+            },
+        )
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        add_image_data(cmd_args, self.cur, self.con)
+
     def delete_uuid(self, uuid: str):
         if not self.connected:
             self.open(create=True, truncate=False)
@@ -282,6 +312,122 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         add_time_series(cmd_args, self.cur, self.con)
 
+    def visualization_sequence(
+        self,
+        name: str,
+        vis_type: str,
+        variables,
+        items,
+        source_dataset: str | None = None,
+        thumbnail_name: str | None = None,
+        thumbnail_uuid: str | None = None,
+        metadata=None,
+        replace: bool = False,
+    ) -> int:
+        cmd_args = self._build_command_args(
+            "visualization_sequence",
+            {
+                "name": name,
+                "vis_type": vis_type,
+                "variables": variables,
+                "items": items,
+                "source_dataset": source_dataset,
+                "thumbnail_name": thumbnail_name,
+                "thumbnail_uuid": thumbnail_uuid,
+                "metadata": metadata,
+                "replace": replace,
+            },
+        )
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return add_visualization_sequence(cmd_args, self.cur, self.con)
+
+    def visualization(
+        self,
+        images,
+        vis_type: str | None = None,
+        variables=None,
+        source_dataset: str | None = None,
+        name: str | None = None,
+        sequence_name: str | None = None,
+        image_names: str | list[str] | None = None,
+        steps: list[int] | tuple[int, ...] | None = None,
+        image_format: str | None = None,
+        thumbnail: list[int] | tuple[int, int] | None = None,
+        thumbnail_image: int = 0,
+        store: bool = False,
+        metadata=None,
+        replace: bool = False,
+        kind: str | None = None,
+        variable: str | None = None,
+        color_by: str | None = None,
+        contour_by: str | None = None,
+        streamline_by=None,
+        x_axis: str | None = None,
+        y_axis=None,
+    ) -> int:
+        image_inputs = self._normalize_visualization_images(images)
+        if not image_inputs:
+            raise ValueError("visualization requires at least one image")
+
+        resolved_vis_type = self._resolve_visualization_kind(kind, vis_type)
+        variable_specs = self._build_visualization_variable_specs(
+            variables=variables,
+            variable=variable,
+            color_by=color_by,
+            contour_by=contour_by,
+            streamline_by=streamline_by,
+            x_axis=x_axis,
+            y_axis=y_axis,
+            source_dataset=source_dataset,
+        )
+        sequence_name = self._resolve_visualization_sequence_name(
+            source_dataset=source_dataset,
+            name=name,
+            sequence_name=sequence_name,
+            variables=variable_specs,
+        )
+        logical_image_names = self._resolve_visualization_image_names(
+            image_inputs=image_inputs,
+            sequence_name=sequence_name,
+            image_names=image_names,
+            steps=steps,
+            image_format=image_format,
+        )
+
+        if not 0 <= int(thumbnail_image) < len(image_inputs):
+            raise ValueError("thumbnail_image index is out of range")
+
+        for idx, image_input in enumerate(image_inputs):
+            logical_name = logical_image_names[idx]
+            if self._is_path_like_image(image_input):
+                self.image(
+                    str(image_input),
+                    name=logical_name,
+                    store=store,
+                    thumbnail=thumbnail,
+                )
+            else:
+                image_bytes, resolved_format = self._coerce_image_input(image_input, image_format)
+                self.image_data(
+                    image_bytes,
+                    resolved_format,
+                    name=logical_name,
+                    thumbnail=thumbnail,
+                    replica_name=f"generated/{Path(logical_name).name}",
+                )
+
+        return self.visualization_sequence(
+            name=sequence_name,
+            vis_type=resolved_vis_type,
+            variables=variable_specs,
+            items=[{"type": "IMAGE", "name": logical_name} for logical_name in logical_image_names],
+            source_dataset=source_dataset,
+            thumbnail_name=logical_image_names[int(thumbnail_image)],
+            metadata=metadata,
+            replace=replace,
+        )
+
     def upgrade(self) -> str:
         if not self.connected:
             self.open(create=True, truncate=False)
@@ -292,6 +438,233 @@ class Manager:  # pylint: disable=too-many-public-methods
         if isinstance(files, (str, Path)):
             return [str(files)]
         return [str(entry) for entry in files]
+
+    def _normalize_visualization_images(self, images):
+        if isinstance(images, (str, Path, bytes, bytearray, memoryview, PILImage.Image)):
+            return [images]
+        if self._is_matplotlib_figure(images):
+            return [images]
+        return list(images)
+
+    def _is_path_like_image(self, image) -> bool:
+        return isinstance(image, (str, Path))
+
+    def _is_matplotlib_figure(self, image) -> bool:
+        image_type = type(image)
+        return image_type.__module__.startswith("matplotlib.") and hasattr(image, "savefig")
+
+    def _infer_image_format(self, data: bytes) -> str | None:
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "PNG"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "JPEG"
+        if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+            return "GIF"
+        return None
+
+    def _coerce_image_input(self, image, image_format: str | None) -> tuple[bytes, str]:
+        if isinstance(image, memoryview):
+            image = image.tobytes()
+        if isinstance(image, bytearray):
+            image = bytes(image)
+        if isinstance(image, bytes):
+            resolved_format = image_format or self._infer_image_format(image)
+            if not resolved_format:
+                raise ValueError("image_format is required for unrecognized in-memory image bytes")
+            return image, resolved_format
+        if isinstance(image, PILImage.Image):
+            if not image_format:
+                image_format = "PNG"
+            buf = BytesIO()
+            image.save(buf, format=image_format.upper())
+            return buf.getvalue(), image_format
+        if self._is_matplotlib_figure(image):
+            resolved_format = image_format or "PNG"
+            buf = BytesIO()
+            image.savefig(buf, format=resolved_format.lower())
+            return buf.getvalue(), resolved_format
+        raise TypeError(f"Unsupported visualization image input type: {type(image)!r}")
+
+    def _normalize_visualization_variable_specs(self, variables, source_dataset: str | None):
+        if isinstance(variables, (str, dict, tuple)):
+            variable_list = [variables]
+        else:
+            variable_list = list(variables)
+        normalized = []
+        default_source_dataset = source_dataset or ""
+        for entry in variable_list:
+            if isinstance(entry, str):
+                normalized.append({"name": entry, "role": "primary", "source_dataset": default_source_dataset})
+                continue
+            if isinstance(entry, dict):
+                item = dict(entry)
+                if "source_dataset" not in item or not item.get("source_dataset"):
+                    item["source_dataset"] = default_source_dataset
+                if ("role" not in item or not item.get("role")) and item.get("use"):
+                    item["role"] = item["use"]
+                if "role" not in item or not item.get("role"):
+                    item["role"] = "primary"
+                normalized.append(item)
+                continue
+            if isinstance(entry, tuple):
+                if len(entry) == 0:
+                    continue
+                item = {"name": entry[0], "role": "primary", "source_dataset": default_source_dataset}
+                if len(entry) >= 2 and entry[1]:
+                    item["role"] = entry[1]
+                if len(entry) >= 3 and entry[2]:
+                    item["source_dataset"] = entry[2]
+                normalized.append(item)
+                continue
+            raise TypeError(f"Unsupported variable specification: {entry!r}")
+        if not normalized:
+            raise ValueError("visualization requires at least one variable specification")
+        for item in normalized:
+            if not item.get("source_dataset"):
+                raise ValueError(f"Variable {item.get('name')!r} requires source_dataset")
+        return normalized
+
+    def _resolve_visualization_kind(self, kind: str | None, vis_type: str | None) -> str:
+        if kind and vis_type and kind != vis_type:
+            raise ValueError("visualization received both kind and vis_type with different values")
+        return str(kind or vis_type or "visualization")
+
+    def _semantic_variable_specs(
+        self,
+        variable: str | None,
+        color_by: str | None,
+        contour_by: str | None,
+        streamline_by,
+        x_axis: str | None,
+        y_axis,
+    ) -> list[dict[str, str]]:
+        specs: list[dict[str, str]] = []
+        if variable:
+            specs.append({"name": str(variable), "role": "primary"})
+        if color_by:
+            specs.append({"name": str(color_by), "role": "color-by"})
+        if contour_by:
+            specs.append({"name": str(contour_by), "role": "contour-by"})
+        if streamline_by:
+            if isinstance(streamline_by, (str, Path)):
+                specs.append({"name": str(streamline_by), "role": "streamline-by"})
+            else:
+                names = [str(entry) for entry in streamline_by]
+                if len(names) == 2:
+                    specs.append({"name": names[0], "role": "streamline-x"})
+                    specs.append({"name": names[1], "role": "streamline-y"})
+                else:
+                    for name in names:
+                        specs.append({"name": name, "role": "streamline-by"})
+        if x_axis:
+            specs.append({"name": str(x_axis), "role": "x-axis"})
+        if y_axis:
+            if isinstance(y_axis, (str, Path)):
+                y_names = [str(y_axis)]
+            else:
+                y_names = [str(entry) for entry in y_axis]
+            for name in y_names:
+                specs.append({"name": name, "role": "y-axis"})
+        return specs
+
+    def _build_visualization_variable_specs(
+        self,
+        variables,
+        variable: str | None,
+        color_by: str | None,
+        contour_by: str | None,
+        streamline_by,
+        x_axis: str | None,
+        y_axis,
+        source_dataset: str | None,
+    ):
+        semantic_specs = self._semantic_variable_specs(variable, color_by, contour_by, streamline_by, x_axis, y_axis)
+        if variables is not None and semantic_specs:
+            raise ValueError("Use either variables=... or semantic arguments, not both")
+        variable_inputs = variables if variables is not None else semantic_specs
+        return self._normalize_visualization_variable_specs(variable_inputs, source_dataset)
+
+    def _default_visualization_token(self, variables) -> str:
+        if len(variables) == 1 and variables[0]["role"] == "primary":
+            return str(variables[0]["name"])
+        parts = [f"{entry['role']}-{entry['name']}" for entry in variables]
+        return "__".join(parts)
+
+    def _default_visualization_name(self, source_dataset: str | None, variables) -> str:
+        root = source_dataset
+        if not root:
+            root = variables[0]["source_dataset"]
+        if not root:
+            root = "visualization"
+        return f"{root}/visualizations/{self._default_visualization_token(variables)}"
+
+    def _resolve_visualization_sequence_name(
+        self,
+        source_dataset: str | None,
+        name: str | None,
+        sequence_name: str | None,
+        variables,
+    ) -> str:
+        if name and sequence_name:
+            raise ValueError("Use either name or sequence_name, not both")
+        if sequence_name:
+            return str(sequence_name)
+        if not name:
+            return self._default_visualization_name(source_dataset, variables)
+        if "/" in str(name):
+            return str(name)
+        root = source_dataset or variables[0]["source_dataset"] or "visualization"
+        return f"{root}/visualizations/{name}"
+
+    def _resolve_visualization_image_names(
+        self,
+        image_inputs,
+        sequence_name: str,
+        image_names,
+        steps,
+        image_format: str | None,
+    ) -> list[str]:
+        if image_names is not None:
+            if isinstance(image_names, (str, Path)):
+                names = [str(image_names)]
+            else:
+                names = [str(entry) for entry in image_names]
+            if len(names) != len(image_inputs):
+                raise ValueError("image_names length must match number of images")
+            return names
+
+        if steps is not None:
+            step_values = [int(step) for step in steps]
+            if len(step_values) != len(image_inputs):
+                raise ValueError("steps length must match number of images")
+        else:
+            step_values = list(range(len(image_inputs)))
+
+        generated: list[str] = []
+        for step, image_input in zip(step_values, image_inputs, strict=True):
+            suffix = self._guess_image_suffix(image_input, image_format)
+            generated.append(f"{sequence_name}/image.{step:06d}{suffix}")
+        return generated
+
+    def _guess_image_suffix(self, image_input, image_format: str | None) -> str:
+        if isinstance(image_input, Path):
+            suffix = image_input.suffix
+            if suffix:
+                return suffix
+        if isinstance(image_input, str):
+            suffix = Path(image_input).suffix
+            if suffix:
+                return suffix
+        if image_format:
+            return "." + image_format.lower().lstrip(".")
+        if isinstance(image_input, (bytes, bytearray, memoryview)):
+            data = bytes(image_input)
+            inferred = self._infer_image_format(data)
+            if inferred == "JPEG":
+                return ".jpg"
+            if inferred:
+                return "." + inferred.lower()
+        return ".png"
 
 
 # pylint:disable = too-many-statements

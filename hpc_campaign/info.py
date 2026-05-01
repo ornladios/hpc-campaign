@@ -122,6 +122,43 @@ class TimeSeriesInfo:
 
 
 @dataclass
+class VisualizationVariableInfo:
+    """Variable-role association within a visualization sequence."""
+
+    name: str
+    role: str
+    source_dataset_id: int
+    source_dataset_name: str
+
+
+@dataclass
+class VisualizationItemInfo:
+    """Explicit sequence item reference."""
+
+    item_order: int
+    item_type: str
+    item_uuid: str
+    metadata: str | None
+    dataset_id: int | None
+    dataset_name: str | None
+    file_format: str | None
+
+
+@dataclass
+class VisualizationSequenceInfo:  # pylint: disable=too-many-instance-attributes
+    """Visualization sequence metadata entry."""
+
+    name: str
+    vis_type: str
+    thumbnail_item_uuid: str | None
+    thumbnail_dataset_id: int | None
+    thumbnail_dataset_name: str | None
+    metadata: str | None
+    variables: list[VisualizationVariableInfo] = field(default_factory=list)
+    items: list[VisualizationItemInfo] = field(default_factory=list)
+
+
+@dataclass
 class InfoResult:
     """Aggregated archive information."""
 
@@ -129,6 +166,7 @@ class InfoResult:
     hosts: list[HostInfo] = field(default_factory=list)
     keys: list[KeyInfo] = field(default_factory=list)
     time_series: dict[int, TimeSeriesInfo] = field(default_factory=dict)
+    visualization_sequences: dict[int, VisualizationSequenceInfo] = field(default_factory=dict)
     datasets: dict[int, DatasetInfo] = field(default_factory=dict)
 
 
@@ -424,7 +462,9 @@ def info_texts(  # pylint: disable=too-many-locals
         )
 
 
-def collect_info(args: argparse.Namespace, con: sqlite3.Connection) -> InfoResult:  # pylint: disable=too-many-locals
+def collect_info(  # pylint: disable=too-many-locals,too-many-statements
+    args: argparse.Namespace, con: sqlite3.Connection
+) -> InfoResult:
     cur = con.cursor()
     res = sql_execute(cur, "select id, name, version, modtime from info")
     row = res.fetchone()
@@ -538,6 +578,83 @@ def collect_info(args: argparse.Namespace, con: sqlite3.Connection) -> InfoResul
         info_texts(args, info_datasets, cur, dirs_archived)
         info_images(args, info_datasets, cur, dirs_archived)
 
+    res_tables = sql_execute(
+        cur,
+        "select name from sqlite_master where type = 'table' and name in "
+        "('visualization_sequence', 'visualization_variable', 'visualization_item')",
+    )
+    available_tables = {row[0] for row in res_tables.fetchall()}
+
+    if "visualization_sequence" in available_tables:
+        res_vis = sql_execute(
+            cur,
+            "select vs.visid, vs.name, vs.vistype, vs.thumbnail_itemuuid, vs.metadata, "
+            "thumb.rowid as thumbnail_datasetid, thumb.name as thumbnail_name "
+            "from visualization_sequence as vs "
+            "left join dataset as thumb on thumb.uuid = vs.thumbnail_itemuuid and thumb.deltime = 0 "
+            "order by vs.visid",
+        )
+        for row in res_vis:
+            vis_id = int(row["visid"])
+            info_datasets.visualization_sequences[vis_id] = VisualizationSequenceInfo(
+                name=row["name"],
+                vis_type=row["vistype"],
+                thumbnail_item_uuid=row["thumbnail_itemuuid"],
+                thumbnail_dataset_id=(
+                    int(row["thumbnail_datasetid"]) if row["thumbnail_datasetid"] is not None else None
+                ),
+                thumbnail_dataset_name=row["thumbnail_name"],
+                metadata=row["metadata"],
+            )
+
+    if "visualization_variable" in available_tables:
+        res_vis_vars = sql_execute(
+            cur,
+            "select vv.visid, vv.datasetid, d.name as dataset_name, vv.variable_name, vv.role "
+            "from visualization_variable as vv "
+            "join dataset as d on d.rowid = vv.datasetid "
+            "order by vv.visid, vv.datasetid, vv.role, vv.variable_name",
+        )
+        for row in res_vis_vars:
+            vis_id = int(row["visid"])
+            sequence_info = info_datasets.visualization_sequences.get(vis_id)
+            if sequence_info is None:
+                continue
+            sequence_info.variables.append(
+                VisualizationVariableInfo(
+                    name=row["variable_name"],
+                    role=row["role"],
+                    source_dataset_id=int(row["datasetid"]),
+                    source_dataset_name=row["dataset_name"],
+                )
+            )
+
+    if "visualization_item" in available_tables:
+        res_vis_items = sql_execute(
+            cur,
+            "select vi.visid, vi.item_order, vi.item_type, vi.item_uuid, vi.metadata, "
+            "d.rowid as datasetid, d.name as dataset_name, d.fileformat as dataset_fileformat "
+            "from visualization_item as vi "
+            "left join dataset as d on d.uuid = vi.item_uuid and d.deltime = 0 "
+            "order by vi.visid, vi.item_order",
+        )
+        for row in res_vis_items:
+            vis_id = int(row["visid"])
+            sequence_info = info_datasets.visualization_sequences.get(vis_id)
+            if sequence_info is None:
+                continue
+            sequence_info.items.append(
+                VisualizationItemInfo(
+                    item_order=int(row["item_order"]),
+                    item_type=row["item_type"],
+                    item_uuid=row["item_uuid"],
+                    metadata=row["metadata"],
+                    dataset_id=int(row["datasetid"]) if row["datasetid"] is not None else None,
+                    dataset_name=row["dataset_name"],
+                    file_format=row["dataset_fileformat"],
+                )
+            )
+
     return info_datasets
 
 
@@ -595,7 +712,7 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
     return lines
 
 
-def format_info(info_data: InfoResult) -> str:
+def format_info(info_data: InfoResult) -> str:  # pylint: disable=too-many-statements
     lines = []
     archive_info = info_data.archive
     created_time = timestamp_to_str(archive_info.mod_time)
@@ -633,6 +750,41 @@ def format_info(info_data: InfoResult) -> str:
         lines.append("Other Datasets:")
         for _ds_id, dataset_info in sorted(info_data.datasets.items()):
             lines.extend(format_info_dataset_lines(dataset_info))
+        lines.append("")
+
+    if info_data.visualization_sequences:
+        lines.append("Visualization Sequences:")
+        for _vis_id, sequence_info in sorted(info_data.visualization_sequences.items()):
+            header = f"  {sequence_info.name}   type={sequence_info.vis_type}"
+            lines.append(header)
+            if sequence_info.thumbnail_dataset_name:
+                thumb_desc = sequence_info.thumbnail_dataset_name
+                if sequence_info.thumbnail_item_uuid:
+                    thumb_desc += f" ({sequence_info.thumbnail_item_uuid})"
+                lines.append(f"      thumbnail: {thumb_desc}")
+            if sequence_info.variables:
+                seen_sources: list[str] = []
+                for variable_info in sequence_info.variables:
+                    if variable_info.source_dataset_name not in seen_sources:
+                        seen_sources.append(variable_info.source_dataset_name)
+                lines.append(f"      sources: {', '.join(seen_sources)}")
+                for variable_info in sequence_info.variables:
+                    lines.append(
+                        f"      {variable_info.role}: {variable_info.name} "
+                        + f"(dataset {variable_info.source_dataset_name})"
+                    )
+            if sequence_info.items:
+                item_types = sorted({item.item_type for item in sequence_info.items})
+                lines.append(f"      items: {len(sequence_info.items)} ({', '.join(item_types)})")
+                for item_info in sequence_info.items[:3]:
+                    item_desc = item_info.item_uuid
+                    if item_info.dataset_name:
+                        item_desc += f" -> {item_info.dataset_name}"
+                    lines.append(f"      item[{item_info.item_order}]: {item_info.item_type} {item_desc}")
+                if len(sequence_info.items) > 3:
+                    lines.append(f"      ... {len(sequence_info.items) - 3} more item(s)")
+            if sequence_info.metadata:
+                lines.append(f"      metadata: {sequence_info.metadata}")
 
     return "\n".join(lines)
 
