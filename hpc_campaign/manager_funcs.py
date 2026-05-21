@@ -54,8 +54,9 @@ def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
         args.remote_data = True
         hostopt = args.host_options.get(args.hostname)
-        if hostopt is not None:
+        if hostopt is not None and isinstance(hostopt, dict):
             opt_id = next(iter(hostopt))
+            print(f"opt_id = {opt_id}  type = {type(opt_id)}")
             if hostopt[opt_id]["protocol"].casefold() == "s3":
                 args.s3_endpoint = hostopt[opt_id]["endpoint"]
                 if args.s3_bucket is None:
@@ -1394,7 +1395,7 @@ def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
     host_id = add_host_name(long_host_name, short_host_name, cur)
     key_id = add_key_id(args.encryption_key_id, cur)
 
-    if args.remote_data and args.s3_bucket is not None:
+    if args.remote_data and getattr(args, "s3_bucket", None) is not None:
         rootdir = args.s3_bucket
     else:
         rootdir = getcwd()
