@@ -2,8 +2,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from hpc_campaign.info import format_info
+from hpc_campaign.info import format_image_associations, format_info
 from hpc_campaign.manager import Manager
+from hpc_campaign.manager_args import ArgParser
 
 repo_root = Path(__file__).resolve().parents[1]
 data_dir = repo_root / "data"
@@ -64,7 +65,23 @@ def test_visualization_sequence_single_source(tmp_path: Path):
     assert "primary: temp (dataset output)" in output_text
     assert "items: 1 (IMAGE)" in output_text
 
+    image_assoc_text = format_image_associations(info_data)
+    assert "thumb: IMAGE" in image_assoc_text
+    assert "sequence: output/temp_heatmap" in image_assoc_text
+    assert "vis_type: heatmap" in image_assoc_text
+    assert "thumbnail: true" in image_assoc_text
+    assert "variables: primary=temp@output" in image_assoc_text
+    assert f"item_uuid: {sequence_info.thumbnail_item_uuid}" in image_assoc_text
+    assert 'metadata: {"colormap": "viridis"}' in image_assoc_text
+
     manager.close()
+
+
+def test_manager_info_images_flag_is_parsed():
+    parser = ArgParser(args=["demo.aca", "info", "--images"], prog="hpc_campaign manager")
+    assert parser.parse_next_command()
+    assert parser.args.command == "info"
+    assert parser.args.images is True
 
 
 def test_visualization_sequence_multi_source_with_thumbnail(tmp_path: Path):

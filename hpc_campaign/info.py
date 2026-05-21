@@ -1,4 +1,5 @@
 import argparse
+import json
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -789,7 +790,81 @@ def format_info(info_data: InfoResult) -> str:  # pylint: disable=too-many-state
     return "\n".join(lines)
 
 
+def _collect_all_datasets(info_data: InfoResult) -> list[DatasetInfo]:
+    datasets: list[DatasetInfo] = []
+    for ts_info in info_data.time_series.values():
+        datasets.extend(ts_info.datasets.values())
+    datasets.extend(info_data.datasets.values())
+    datasets.sort(key=lambda dataset: (dataset.name, dataset.file_format, dataset.uuid))
+    return datasets
+
+
+def _format_visualization_metadata(metadata: str | None) -> str | None:
+    if not metadata:
+        return None
+    try:
+        return json.dumps(json.loads(metadata), sort_keys=True)
+    except json.JSONDecodeError:
+        return metadata
+
+
+def format_image_associations(info_data: InfoResult) -> str:
+    lines = []
+    sequences = list(info_data.visualization_sequences.values())
+    image_datasets = [dataset for dataset in _collect_all_datasets(info_data) if dataset.file_format == "IMAGE"]
+
+    for dataset in image_datasets:
+        lines.append(f"{dataset.name}: {dataset.file_format}")
+
+        matches: list[tuple[VisualizationSequenceInfo, bool]] = []
+        for sequence in sequences:
+            is_thumbnail = sequence.thumbnail_dataset_name == dataset.name
+            in_sequence = any(
+                item.dataset_name == dataset.name for item in sequence.items if item.dataset_name is not None
+            )
+            if is_thumbnail or in_sequence:
+                matches.append((sequence, is_thumbnail))
+        matches.sort(key=lambda item: item[0].name)
+
+        if not matches:
+            lines.append("  associations: none")
+            continue
+
+        for sequence, is_thumbnail in matches:
+            lines.append(f"  sequence: {sequence.name}")
+            lines.append(f"    vis_type: {sequence.vis_type}")
+            if is_thumbnail:
+                lines.append("    thumbnail: true")
+            if sequence.variables:
+                source_names: list[str] = []
+                for variable in sequence.variables:
+                    if variable.source_dataset_name not in source_names:
+                        source_names.append(variable.source_dataset_name)
+                lines.append(f"    sources: {', '.join(source_names)}")
+                variables = ", ".join(
+                    f"{variable.role}={variable.name}@{variable.source_dataset_name}" for variable in sequence.variables
+                )
+                lines.append(f"    variables: {variables}")
+            item_uuids = ", ".join(item.item_uuid for item in sequence.items if item.dataset_name == dataset.name)
+            if item_uuids:
+                lines.append(f"    item_uuid: {item_uuids}")
+            metadata = _format_visualization_metadata(sequence.metadata)
+            if metadata:
+                lines.append(f"    metadata: {metadata}")
+        lines.append("")
+
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
 def print_info(info_data: InfoResult):
     output_text = format_info(info_data)
+    if output_text:
+        print(output_text)
+
+
+def print_image_associations(info_data: InfoResult):
+    output_text = format_image_associations(info_data)
     if output_text:
         print(output_text)
