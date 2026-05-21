@@ -17,7 +17,7 @@ from time import time_ns
 
 from PIL import Image as PILImage
 
-from .info import InfoResult, collect_info, print_info
+from .info import InfoResult, collect_info, print_image_associations, print_info
 from .key import read_key
 from .manager_args import ArgParser
 from .manager_funcs import (
@@ -698,7 +698,10 @@ def main(args=None, prog=None):
             info_data = manager.info(
                 parser.args.list_replicas, parser.args.list_files, parser.args.show_deleted, parser.args.show_checksum
             )
-            print_info(info_data)
+            if parser.args.images:
+                print_image_associations(info_data)
+            else:
+                print_info(info_data)
         elif parser.args.command == "data":
             manager.data(parser.args.files, parser.args.name)
         elif parser.args.command == "text":

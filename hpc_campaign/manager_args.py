@@ -163,6 +163,12 @@ file:     [encryption key]  size  date  [cheksum]  filename
             help="List files embedded in campaign archive",
             action="store_true",
         )
+        parser_info.add_argument(
+            "-i",
+            "--images",
+            help="Print image datasets and their visualization associations",
+            action="store_true",
+        )
         parser_info.add_argument("-d", "--show-deleted", help="Show deleted entries", action="store_true")
         parser_info.add_argument("-c", "--show-checksum", help="Show checksums of files", action="store_true")
         parsers["info"] = parser_info
