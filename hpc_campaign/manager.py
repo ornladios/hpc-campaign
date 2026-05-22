@@ -193,6 +193,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         name: str | None = None,
         store: bool = False,
         thumbnail: list[int] | tuple[int, int] | None = None,
+        verbose: int | None = None,
     ):
         file_path = str(file_path)
         thumb_value = None
@@ -200,7 +201,13 @@ class Manager:  # pylint: disable=too-many-public-methods
             thumb_value = [int(thumbnail[0]), int(thumbnail[1])]
         cmd_args = self._build_command_args(
             "image",
-            {"file": file_path, "name": name, "store": store, "thumbnail": thumb_value},
+            {
+                "file": file_path,
+                "name": name,
+                "store": store,
+                "thumbnail": thumb_value,
+                "verbose": self.args.verbose if verbose is None else int(verbose),
+            },
         )
         if not self.connected:
             self.open(create=True, truncate=False)
@@ -213,6 +220,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         name: str | None = None,
         thumbnail: list[int] | tuple[int, int] | None = None,
         replica_name: str | None = None,
+        verbose: int | None = None,
     ):
         thumb_value = None
         if thumbnail is not None:
@@ -225,6 +233,7 @@ class Manager:  # pylint: disable=too-many-public-methods
                 "name": name,
                 "thumbnail": thumb_value,
                 "replica_name": replica_name,
+                "verbose": self.args.verbose if verbose is None else int(verbose),
             },
         )
         if not self.connected:
@@ -365,6 +374,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         streamline_by=None,
         x_axis: str | None = None,
         y_axis=None,
+        verbose: int | None = None,
     ) -> int:
         image_inputs = self._normalize_visualization_images(images)
         if not image_inputs:
@@ -398,6 +408,7 @@ class Manager:  # pylint: disable=too-many-public-methods
         if not 0 <= int(thumbnail_image) < len(image_inputs):
             raise ValueError("thumbnail_image index is out of range")
 
+        image_verbose = int(self.args.verbose if verbose is None else verbose)
         for idx, image_input in enumerate(image_inputs):
             logical_name = logical_image_names[idx]
             if self._is_path_like_image(image_input):
@@ -406,6 +417,7 @@ class Manager:  # pylint: disable=too-many-public-methods
                     name=logical_name,
                     store=store,
                     thumbnail=thumbnail,
+                    verbose=image_verbose,
                 )
             else:
                 image_bytes, resolved_format = self._coerce_image_input(image_input, image_format)
@@ -415,6 +427,7 @@ class Manager:  # pylint: disable=too-many-public-methods
                     name=logical_name,
                     thumbnail=thumbnail,
                     replica_name=f"generated/{Path(logical_name).name}",
+                    verbose=image_verbose,
                 )
 
         return self.visualization_sequence(
