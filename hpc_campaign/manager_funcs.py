@@ -43,6 +43,23 @@ from .utils import (
 )
 
 
+def find_host_def(args: argparse.Namespace, hostname: str) -> dict | str | None:
+    """
+    Return the host's definition dictionary.
+    If a hostname in the hosts.yaml is 'XXXX: YYYY' then find the definition for YYYY instead.
+    If YYYY is "local" or the user_options.host_name then return the user_options.host_name.
+    """
+    hostopt = args.host_options.get(hostname)
+    if hostopt is not None:
+        if isinstance(hostopt, dict):
+            return hostopt
+        if isinstance(hostopt, str):
+            if hostopt.lower() == "local":
+                return args.user_options.host_name
+            return find_host_def(args, hostopt)
+    return None
+
+
 def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     """Set default values after user arguments are already parsed"""
     set_default_args_from_config(args, True)
@@ -52,9 +69,9 @@ def set_default_args(args: argparse.Namespace) -> argparse.Namespace:
     if not args.hostname:
         args.hostname = args.user_options.host_name
     elif args.hostname in args.host_options and args.hostname != args.user_options.host_name:
-        args.remote_data = True
-        hostopt = args.host_options.get(args.hostname)
+        hostopt = find_host_def(args, args.hostname)
         if hostopt is not None and isinstance(hostopt, dict):
+            args.remote_data = True
             opt_id = next(iter(hostopt))
             print(f"opt_id = {opt_id}  type = {type(opt_id)}")
             if hostopt[opt_id]["protocol"].casefold() == "s3":
