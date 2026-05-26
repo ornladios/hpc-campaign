@@ -190,6 +190,43 @@ def test_visualization_single_file_convenience_api(tmp_path: Path):
     manager.close()
 
 
+def test_visualization_convenience_api_respects_verbose(tmp_path: Path, capsys):
+    archive_name = "visualization_verbose.aca"
+    image_path_a = tmp_path / "frame_a.png"
+    image_path_b = tmp_path / "frame_b.png"
+    image_path_c = tmp_path / "frame_c.png"
+    Image.new("RGB", (12, 10), color="purple").save(image_path_a)
+    Image.new("RGB", (12, 10), color="green").save(image_path_b)
+    Image.new("RGB", (12, 10), color="orange").save(image_path_c)
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path), verbose=0)
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+
+    capsys.readouterr()
+    manager.visualization(
+        images=[image_path_a, image_path_b],
+        vis_type="heatmap",
+        source_dataset="output",
+        variables=[{"name": "temp", "role": "primary"}],
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+    manager.visualization(
+        images=image_path_c,
+        vis_type="heatmap",
+        source_dataset="output",
+        name="temp_verbose",
+        variables=[{"name": "temp", "role": "primary"}],
+        verbose=1,
+    )
+    captured = capsys.readouterr()
+    assert "Process image" in captured.out
+
+    manager.close()
+
+
 def test_visualization_sequence_file_list_convenience_api(tmp_path: Path):
     archive_name = "visualization_convenience_sequence.aca"
     first_dir = tmp_path / "a"

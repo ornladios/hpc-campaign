@@ -142,9 +142,14 @@ def encrypt_buffer(args: argparse.Namespace, buf: bytes):
         box = nacl.secret.SecretBox(args.encryption_key)
         nonce = nacl.utils.random(nacl.secret.SecretBox.NONCE_SIZE)
         e = box.encrypt(buf, nonce)
-        print("Encoded buffer size: ", len(e))
+        if is_verbose(args):
+            print("Encoded buffer size: ", len(e))
         return e
     return buf
+
+
+def is_verbose(args: argparse.Namespace) -> bool:
+    return int(getattr(args, "verbose", 0) or 0) > 0
 
 
 def lastrowid_or_zero(cur_ds: sqlite3.Cursor) -> int:
@@ -261,12 +266,14 @@ def add_replica_to_archive(
     mt: float,
     size: int,
     indent: str = "",
+    verbose: bool = True,
 ) -> int:
-    print(f"{indent}Add replica {dataset} to archive")
-    print(
-        f"{indent}add_replica_to_archive(host={host_id}, dir={dir_id}, archive={archive_id}, "
-        f"key={key_id}, name={dataset} dsid={datasetid}, time={mt}, size={size})"
-    )
+    if verbose:
+        print(f"{indent}Add replica {dataset} to archive")
+        print(
+            f"{indent}add_replica_to_archive(host={host_id}, dir={dir_id}, archive={archive_id}, "
+            f"key={key_id}, name={dataset} dsid={datasetid}, time={mt}, size={size})"
+        )
     cur_ds = sql_execute(
         cur,
         "insert into replica (datasetid, hostid, dirid, archiveid, name, modtime, deltime, keyid, size) "
@@ -278,7 +285,8 @@ def add_replica_to_archive(
         (datasetid, host_id, dir_id, archive_id, dataset, mt, 0, key_id, size),
     )
     row_id = cur_ds.fetchone()[0]
-    print(f"{indent}  Replica rowid = {row_id}")
+    if verbose:
+        print(f"{indent}  Replica rowid = {row_id}")
     return row_id
 
 
@@ -289,8 +297,10 @@ def add_dataset_to_archive(
     fileformat: str,
     mt: float = 0.0,
     indent: str = "",
+    verbose: bool = True,
 ) -> int:
-    print(f"{indent}Add dataset {name} to archive")
+    if verbose:
+        print(f"{indent}Add dataset {name} to archive")
     cur_ds = sql_execute(
         cur,
         "insert into dataset (name, uuid, modtime, deltime, fileformat, tsid, tsorder) "
@@ -309,8 +319,10 @@ def add_resolution_to_archive(
     y: int,
     cur: sqlite3.Cursor,
     indent: str = "",
+    verbose: bool = True,
 ) -> int:
-    print(f"{indent}Add resolution {x} {y} for replica {rep_id} to archive")
+    if verbose:
+        print(f"{indent}Add resolution {x} {y} for replica {rep_id} to archive")
     cur_ds = sql_execute(
         cur,
         "insert into resolution (replicaid, x, y) "
@@ -708,29 +720,45 @@ def process_image(
     dataset = args.file
     if args.name is not None:
         dataset = args.name
+    verbose = is_verbose(args)
 
     statres = stat(args.file)
     mt = statres.st_mtime_ns
     filesize = statres.st_size
     unique_id = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + args.file).hex
-    print(f"Process image {location}/{args.file}")
+    if verbose:
+        print(f"Process image {location}/{args.file}")
 
     img = Image.open(args.file)
     imgres = img.size
 
-    ds_id = add_dataset_to_archive(dataset, cur, unique_id, "IMAGE", mt, indent="  ")
-    rep_id = add_replica_to_archive(host_id, dir_id, 0, key_id, args.file, cur, ds_id, mt, filesize, indent="  ")
-    add_resolution_to_archive(rep_id, imgres[0], imgres[1], cur, indent="  ")
+    ds_id = add_dataset_to_archive(dataset, cur, unique_id, "IMAGE", mt, indent="  ", verbose=verbose)
+    rep_id = add_replica_to_archive(
+        host_id,
+        dir_id,
+        0,
+        key_id,
+        args.file,
+        cur,
+        ds_id,
+        mt,
+        filesize,
+        indent="  ",
+        verbose=verbose,
+    )
+    add_resolution_to_archive(rep_id, imgres[0], imgres[1], cur, indent="  ", verbose=verbose)
 
     if args.store or args.thumbnail is not None:
         imgsuffix = Path(args.file).suffix
         if args.store:
-            print("Storing the image in the archive")
+            if verbose:
+                print("Storing the image in the archive")
             resname = f"{imgres[0]}x{imgres[1]}{imgsuffix}"
             add_file_to_archive(args, args.file, cur, rep_id, mt, resname, compress=False, indent="  ")
 
         else:
-            print(f"  Make thumbnail image with resolution {args.thumbnail}")
+            if verbose:
+                print(f"  Make thumbnail image with resolution {args.thumbnail}")
             img.thumbnail(args.thumbnail)
             imgres = img.size
             resname = f"{imgres[0]}x{imgres[1]}{imgsuffix}"
@@ -751,6 +779,7 @@ def process_image(
                 now,
                 filesize,
                 indent="  ",
+                verbose=verbose,
             )
             add_file_to_archive(
                 args,
@@ -762,7 +791,7 @@ def process_image(
                 compress=False,
                 indent="  ",
             )
-            add_resolution_to_archive(thumb_rep_id, imgres[0], imgres[1], cur, indent="  ")
+            add_resolution_to_archive(thumb_rep_id, imgres[0], imgres[1], cur, indent="  ", verbose=verbose)
             remove(thumbfilename)
 
 
@@ -793,21 +822,36 @@ def process_image_data(
 
     mt = time_ns()
     filesize = len(image_bytes)
-    print(f"Process in-memory image {dataset}")
+    verbose = is_verbose(args)
+    if verbose:
+        print(f"Process in-memory image {dataset}")
 
     img = Image.open(BytesIO(image_bytes))
     img.load()
     imgres = img.size
 
-    ds_id = add_dataset_to_archive(dataset, cur, unique_id, "IMAGE", mt, indent="  ")
-    rep_id = add_replica_to_archive(host_id, dir_id, 0, key_id, replica_name, cur, ds_id, mt, filesize, indent="  ")
-    add_resolution_to_archive(rep_id, imgres[0], imgres[1], cur, indent="  ")
+    ds_id = add_dataset_to_archive(dataset, cur, unique_id, "IMAGE", mt, indent="  ", verbose=verbose)
+    rep_id = add_replica_to_archive(
+        host_id,
+        dir_id,
+        0,
+        key_id,
+        replica_name,
+        cur,
+        ds_id,
+        mt,
+        filesize,
+        indent="  ",
+        verbose=verbose,
+    )
+    add_resolution_to_archive(rep_id, imgres[0], imgres[1], cur, indent="  ", verbose=verbose)
 
     resname = f"{imgres[0]}x{imgres[1]}{suffix}"
     add_file_to_archive(args, "", cur, rep_id, mt, resname, compress=False, content=image_bytes, indent="  ")
 
     if args.thumbnail is not None:
-        print(f"  Make thumbnail image with resolution {args.thumbnail}")
+        if verbose:
+            print(f"  Make thumbnail image with resolution {args.thumbnail}")
         thumb_img = img.copy()
         thumb_img.thumbnail(args.thumbnail)
         thumb_res = thumb_img.size
@@ -826,6 +870,7 @@ def process_image_data(
             thumb_now,
             len(thumb_bytes),
             indent="  ",
+            verbose=verbose,
         )
         thumb_resname = f"{thumb_res[0]}x{thumb_res[1]}{suffix}"
         add_file_to_archive(
@@ -839,16 +884,17 @@ def process_image_data(
             content=thumb_bytes,
             indent="  ",
         )
-        add_resolution_to_archive(thumb_rep_id, thumb_res[0], thumb_res[1], cur, indent="  ")
+        add_resolution_to_archive(thumb_rep_id, thumb_res[0], thumb_res[1], cur, indent="  ", verbose=verbose)
 
 
 def add_image_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     long_host_name, short_host_name = get_host_name(args)
+    verbose = is_verbose(args)
 
-    host_id = add_host_name(long_host_name, short_host_name, cur)
-    key_id = add_key_id(args.encryption_key_id, cur)
+    host_id = add_host_name(long_host_name, short_host_name, cur, verbose=verbose)
+    key_id = add_key_id(args.encryption_key_id, cur, verbose=verbose)
     rootdir = getcwd()
-    dir_id = add_directory(host_id, rootdir, cur)
+    dir_id = add_directory(host_id, rootdir, cur, verbose=verbose)
     sql_commit(con)
 
     process_image_data(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
@@ -1106,12 +1152,14 @@ def add_host_name(
     cur: sqlite3.Cursor,
     default_protocol: str = "",
     indent: str = "",
+    verbose: bool = True,
 ) -> int:
     res = sql_execute(cur, 'select rowid from host where hostname = "' + short_host_name + '"')
     row = res.fetchone()
     if row is not None:
         host_id = row[0]
-        print(f"{indent}Found host {short_host_name} in database, rowid = {host_id}")
+        if verbose:
+            print(f"{indent}Found host {short_host_name} in database, rowid = {host_id}")
     else:
         cur_host = sql_execute(
             cur,
@@ -1119,13 +1167,15 @@ def add_host_name(
             (short_host_name, long_host_name, CURRENT_TIME, 0, default_protocol),
         )
         host_id = lastrowid_or_zero(cur_host)
-        print(
-            f"{indent}Inserted host {short_host_name} into database, rowid = {host_id}, longhostname = {long_host_name}"
-        )
+        if verbose:
+            print(
+                f"{indent}Inserted host {short_host_name} into database, rowid = {host_id}, "
+                f"longhostname = {long_host_name}"
+            )
     return host_id
 
 
-def add_directory(host_id: int, path: str, cur: sqlite3.Cursor, indent: str = "") -> int:
+def add_directory(host_id: int, path: str, cur: sqlite3.Cursor, indent: str = "", verbose: bool = True) -> int:
     res = sql_execute(
         cur,
         "select rowid from directory where hostid = " + str(host_id) + ' and name = "' + path + '"',
@@ -1133,7 +1183,8 @@ def add_directory(host_id: int, path: str, cur: sqlite3.Cursor, indent: str = ""
     row = res.fetchone()
     if row is not None:
         dir_id = row[0]
-        print(f"{indent}Found directory {path} with host_id {host_id} in database, rowid = {dir_id}")
+        if verbose:
+            print(f"{indent}Found directory {path} with host_id {host_id} in database, rowid = {dir_id}")
     else:
         cur_directory = sql_execute(
             cur,
@@ -1141,24 +1192,27 @@ def add_directory(host_id: int, path: str, cur: sqlite3.Cursor, indent: str = ""
             (host_id, path, CURRENT_TIME, 0),
         )
         dir_id = lastrowid_or_zero(cur_directory)
-        print(f"{indent}Inserted directory {path} into database, rowid = {dir_id}")
+        if verbose:
+            print(f"{indent}Inserted directory {path} into database, rowid = {dir_id}")
     return dir_id
 
 
-def add_key_id(key_id: str, cur: sqlite3.Cursor) -> int:
+def add_key_id(key_id: str, cur: sqlite3.Cursor, verbose: bool = True) -> int:
     key_row_id: int = 0  # an invalid row id
     if key_id:
         res = sql_execute(cur, 'select rowid from key where keyid = "' + key_id + '"')
         row = res.fetchone()
         if row is not None:
             key_row_id = int(row[0])
-            print(f"Found key {key_id} in database, rowid = {key_row_id}")
+            if verbose:
+                print(f"Found key {key_id} in database, rowid = {key_row_id}")
         else:
             cmd = f'insert into key values ("{(key_id)}")'
             cur_key = sql_execute(cur, cmd)
             # cur_key = sql_execute(cur,"insert into key values (?)", (key_id))
             key_row_id = lastrowid_or_zero(cur_key)
-            print(f"Inserted key {key_id} into database, rowid = {key_row_id}")
+            if verbose:
+                print(f"Inserted key {key_id} into database, rowid = {key_row_id}")
     return key_row_id
 
 
@@ -1391,16 +1445,17 @@ def add_archival_storage(
 
 def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     long_host_name, short_host_name = get_host_name(args)
+    verbose = is_verbose(args) if args.command == "image" else True
 
-    host_id = add_host_name(long_host_name, short_host_name, cur)
-    key_id = add_key_id(args.encryption_key_id, cur)
+    host_id = add_host_name(long_host_name, short_host_name, cur, verbose=verbose)
+    key_id = add_key_id(args.encryption_key_id, cur, verbose=verbose)
 
     if args.remote_data and getattr(args, "s3_bucket", None) is not None:
         rootdir = args.s3_bucket
     else:
         rootdir = getcwd()
 
-    dir_id = add_directory(host_id, rootdir, cur)
+    dir_id = add_directory(host_id, rootdir, cur, verbose=verbose)
     sql_commit(con)
 
     if args.command == "data":
