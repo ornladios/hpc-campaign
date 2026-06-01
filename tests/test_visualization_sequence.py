@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from hpc_campaign.info import format_image_associations, format_info
@@ -281,6 +282,7 @@ def test_visualization_in_memory_image_convenience_api(tmp_path: Path):
         source_dataset="output",
         variables=[{"name": "temp", "role": "primary"}],
         thumbnail=(4, 4),
+        store=True,
     )
 
     assert visid > 0
@@ -292,6 +294,32 @@ def test_visualization_in_memory_image_convenience_api(tmp_path: Path):
     )
     assert len(image_dataset.replicas) == 2
     assert any(replica.flags.embedded for replica in image_dataset.replicas.values())
+
+    manager.close()
+
+
+def test_in_memory_image_inputs_require_store_true(tmp_path: Path):
+    archive_name = "visualization_memory_store_false.aca"
+    image = Image.new("RGB", (10, 10), color="orange")
+    png_path = tmp_path / "memory.png"
+    image.save(png_path)
+    png_bytes = png_path.read_bytes()
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+
+    with pytest.raises(ValueError, match="image_data requires store=True"):
+        manager.image_data(png_bytes, image_format="PNG", name="memory/image.png", store=False)
+
+    with pytest.raises(ValueError, match="image_data requires store=True"):
+        manager.visualization(
+            images=png_bytes,
+            vis_type="heatmap",
+            source_dataset="output",
+            variables=[{"name": "temp", "role": "primary"}],
+            store=False,
+        )
 
     manager.close()
 
