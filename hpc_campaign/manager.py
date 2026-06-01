@@ -220,8 +220,12 @@ class Manager:  # pylint: disable=too-many-public-methods
         name: str | None = None,
         thumbnail: list[int] | tuple[int, int] | None = None,
         replica_name: str | None = None,
+        store: bool = True,
         verbose: int | None = None,
     ):
+        if not store:
+            raise ValueError("image_data requires store=True because in-memory images have no external replica path")
+
         thumb_value = None
         if thumbnail is not None:
             thumb_value = [int(thumbnail[0]), int(thumbnail[1])]
@@ -233,6 +237,7 @@ class Manager:  # pylint: disable=too-many-public-methods
                 "name": name,
                 "thumbnail": thumb_value,
                 "replica_name": replica_name,
+                "store": store,
                 "verbose": self.args.verbose if verbose is None else int(verbose),
             },
         )
@@ -427,6 +432,7 @@ class Manager:  # pylint: disable=too-many-public-methods
                     name=logical_name,
                     thumbnail=thumbnail,
                     replica_name=f"generated/{Path(logical_name).name}",
+                    store=store,
                     verbose=image_verbose,
                 )
 

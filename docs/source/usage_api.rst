@@ -133,6 +133,12 @@ set and variable uses. This is useful in notebooks where a user reads a
 variable, performs analysis, creates figures, and wants to save those figures
 back into the campaign.
 
+File-backed image inputs follow the same storage rule as ``image``: by default
+the campaign records a reference to the image file, and ``store=True`` embeds
+the image bytes in the archive. In-memory image inputs such as PNG/JPEG bytes,
+PIL Images, and matplotlib Figures have no external file path, so they require
+``store=True``.
+
 Example usage:
 
 .. code-block:: python
@@ -148,6 +154,7 @@ Example usage:
       kind="heatmap",
       color_by="rho",
       steps=[0, 1, 2],
+      store=True,
       replace=True,
   )
 
@@ -395,4 +402,3 @@ Comparing the campaign archive size to the data it points to can be done by the 
 
   $ du -sh /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
   127K     /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
-

@@ -825,6 +825,8 @@ def process_image_data(
     image_format = str(args.image_format or "").strip()
     if not image_format:
         raise ValueError("image_data requires image_format")
+    if not getattr(args, "store", True):
+        raise ValueError("image_data requires store=True because in-memory images have no external replica path")
 
     suffix = "." + image_format.lower().lstrip(".")
     if args.name is not None:
