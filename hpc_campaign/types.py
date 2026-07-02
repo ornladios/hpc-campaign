@@ -12,6 +12,7 @@ class DatasetType(IntEnum):
     HDF5 = 2
     IMAGE = 3
     TEXT = 4
+    SCALAR_FIELD = 5
 
 
 ADIOS_AvailableVariables: TypeAlias = dict[str, dict[str, str]]

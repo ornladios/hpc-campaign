@@ -112,6 +112,7 @@ class DatasetInfo:
     del_time: int
     file_format: str
     replicas: dict[int, ReplicaInfo] = field(default_factory=dict)
+    metadata: dict | None = None
 
 
 @dataclass
@@ -175,10 +176,10 @@ class InfoResult:
 # fmt: off
 SELECT_DATA_CMD = """
 SELECT
-    d.rowid             AS ds_id, 
+    d.rowid             AS ds_id,
     d.name              AS ds_name,
     d.uuid              AS ds_uuid,
-    d.modtime           AS ds_modtime, 
+    d.modtime           AS ds_modtime,
     d.deltime           AS ds_deltime,
     d.fileformat        AS ds_fileformat,
     d.tsid              AS ds_tsid,
@@ -299,6 +300,54 @@ LEFT JOIN repfiles AS rf
 LEFT JOIN file AS f
     ON f.fileid = rf.fileid
 WHERE d.fileformat = 'TEXT'
+ORDER BY d.rowid, r.rowid, f.fileid;
+"""
+
+SELECT_SCALAR_FIELDS_CMD = """
+SELECT
+    d.rowid             AS ds_id,
+    d.name              AS ds_name,
+    d.uuid              AS ds_uuid,
+    d.modtime           AS ds_modtime,
+    d.deltime           AS ds_deltime,
+    d.fileformat        AS ds_fileformat,
+    d.tsid              AS ds_tsid,
+
+    r.rowid             AS rep_id,
+    r.hostid            AS hostid,
+    r.dirid             AS dirid,
+    r.archiveid         AS archiveid,
+    r.name              AS rep_name,
+    r.modtime           AS rep_modtime,
+    r.deltime           AS rep_deltime,
+    r.keyid             AS keyid,
+    r.size              AS rep_size,
+
+    rf.fileid           AS repfile_id,
+
+    f.name              AS file_name,
+    f.compression       AS compression,
+    f.lenorig           AS lenorig,
+    f.lencompressed     AS lencompressed,
+    f.modtime           AS file_modtime,
+    f.checksum          AS checksum,
+
+    res.x               AS res_x,
+    res.y               AS res_y,
+    sf.metadata         AS scalar_metadata
+
+FROM dataset AS d
+JOIN replica AS r
+    ON r.datasetid = d.rowid
+LEFT JOIN repfiles AS rf
+    ON rf.replicaid = r.rowid
+LEFT JOIN file AS f
+    ON f.fileid = rf.fileid
+LEFT JOIN resolution AS res
+    ON res.replicaid = r.rowid
+LEFT JOIN scalar_field AS sf
+    ON sf.datasetid = d.rowid
+WHERE d.fileformat = 'SCALAR_FIELD'
 ORDER BY d.rowid, r.rowid, f.fileid;
 """
 
@@ -441,6 +490,40 @@ def info_images(  # pylint: disable=too-many-locals
             continue
 
 
+def info_scalar_fields(  # pylint: disable=too-many-locals
+    args: argparse.Namespace,
+    info_data: InfoResult,
+    cur: sqlite3.Cursor,
+    dirs_archived: dict[int, bool],
+):
+    res_tables = sql_execute(cur, "select name from sqlite_master where type = 'table' and name = 'scalar_field'")
+    if res_tables.fetchone() is None:
+        return
+
+    res = sql_execute(cur, SELECT_SCALAR_FIELDS_CMD)
+    for row in res:
+        resolution = None
+        if row["res_x"] is not None and row["res_y"] is not None:
+            resolution = ResolutionInfo(int(row["res_x"]), int(row["res_y"]))
+        dataset_info = info_row(
+            args,
+            info_data,
+            row,
+            accuracy=False,
+            embedded=(row["repfile_id"] is not None),
+            resolution=resolution,
+            dirs_archived=dirs_archived,
+        )
+        if dataset_info is None:
+            continue
+        if row["scalar_metadata"]:
+            try:
+                metadata = json.loads(row["scalar_metadata"])
+                dataset_info.metadata = metadata if isinstance(metadata, dict) else None
+            except (json.JSONDecodeError, TypeError):
+                dataset_info.metadata = None
+
+
 def info_texts(  # pylint: disable=too-many-locals
     args: argparse.Namespace,
     info_data: InfoResult,
@@ -578,6 +661,7 @@ def collect_info(  # pylint: disable=too-many-locals,too-many-statements
         info_datas(args, info_datasets, cur, dirs_archived)
         info_texts(args, info_datasets, cur, dirs_archived)
         info_images(args, info_datasets, cur, dirs_archived)
+        info_scalar_fields(args, info_datasets, cur, dirs_archived)
 
     res_tables = sql_execute(
         cur,
@@ -685,7 +769,7 @@ def format_info_dataset_lines(  # pylint: disable=too-many-locals
         else:
             replica_line += "  "
 
-        if dataset_info.file_format == "IMAGE" and replica_info.resolution is not None:
+        if dataset_info.file_format in {"IMAGE", "SCALAR_FIELD"} and replica_info.resolution is not None:
             res = replica_info.resolution
             resolution_text = f" {res.x} x {res.y}".rjust(14)
         else:
@@ -811,7 +895,9 @@ def _format_visualization_metadata(metadata: str | None) -> str | None:
 def format_image_associations(info_data: InfoResult) -> str:
     lines = []
     sequences = list(info_data.visualization_sequences.values())
-    image_datasets = [dataset for dataset in _collect_all_datasets(info_data) if dataset.file_format == "IMAGE"]
+    image_datasets = [
+        dataset for dataset in _collect_all_datasets(info_data) if dataset.file_format in {"IMAGE", "SCALAR_FIELD"}
+    ]
 
     for dataset in image_datasets:
         lines.append(f"{dataset.name}: {dataset.file_format}")

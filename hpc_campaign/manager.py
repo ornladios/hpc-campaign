@@ -8,6 +8,8 @@
 # pylint: disable=too-many-positional-arguments
 
 import argparse
+import json
+import math
 import sqlite3
 import sys
 from io import BytesIO
@@ -15,6 +17,7 @@ from os.path import exists
 from pathlib import Path
 from time import time_ns
 
+import numpy as np
 from PIL import Image as PILImage
 
 from .info import InfoResult, collect_info, print_image_associations, print_info
@@ -23,6 +26,7 @@ from .manager_args import ArgParser
 from .manager_funcs import (
     add_archival_storage,
     add_image_data,
+    add_scalar_field_data,
     add_time_series,
     add_visualization_sequence,
     archive_dataset,
@@ -244,6 +248,42 @@ class Manager:  # pylint: disable=too-many-public-methods
         if not self.connected:
             self.open(create=True, truncate=False)
         add_image_data(cmd_args, self.cur, self.con)
+
+    def scalar_field_data(
+        self,
+        data,
+        name: str | None = None,
+        dtype: str | None = None,
+        shape: list[int] | tuple[int, int] | None = None,
+        metadata=None,
+        layout: str = "row-major",
+        compression: str = "none",
+        encoding: str = "raw",
+        replica_name: str | None = None,
+        verbose: int | None = None,
+    ):
+        payload, scalar_metadata = self._coerce_scalar_field_input(
+            data=data,
+            dtype=dtype,
+            shape=shape,
+            metadata=metadata,
+            layout=layout,
+            compression=compression,
+            encoding=encoding,
+        )
+        cmd_args = self._build_command_args(
+            "scalar_field_data",
+            {
+                "scalar_field_data": payload,
+                "scalar_field_metadata": scalar_metadata,
+                "name": name,
+                "replica_name": replica_name,
+                "verbose": self.args.verbose if verbose is None else int(verbose),
+            },
+        )
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        add_scalar_field_data(cmd_args, self.cur, self.con)
 
     def delete_uuid(self, uuid: str):
         if not self.connected:
@@ -504,6 +544,139 @@ class Manager:  # pylint: disable=too-many-public-methods
             return buf.getvalue(), resolved_format
         raise TypeError(f"Unsupported visualization image input type: {type(image)!r}")
 
+    def _validate_scalar_field_storage_options(self, layout: str, compression: str, encoding: str):
+        layout_value = str(layout or "").strip().lower()
+        if layout_value != "row-major":
+            raise ValueError("Only row-major scalar field layout is supported currently")
+
+        compression_value = str(compression or "").strip().lower()
+        if compression_value != "none":
+            raise ValueError("Only compression='none' is supported for scalar fields currently")
+
+        encoding_value = str(encoding or "").strip().lower()
+        if encoding_value != "raw":
+            raise ValueError("Only encoding='raw' is supported for scalar fields currently")
+
+    def _normalize_scalar_field_shape(self, shape: list[int] | tuple[int, int] | None) -> tuple[int, ...]:
+        shape_tuple = tuple(int(dim) for dim in shape) if shape is not None else ()
+        if shape_tuple and len(shape_tuple) != 2:
+            raise ValueError("shape=[height, width] must contain exactly two dimensions")
+        return shape_tuple
+
+    def _normalize_scalar_field_input_data(self, data):
+        if isinstance(data, memoryview):
+            return data.tobytes()
+        if isinstance(data, bytearray):
+            return bytes(data)
+        return data
+
+    def _scalar_field_storage_dtype(self, dtype) -> np.dtype:
+        storage_dtype = np.dtype(dtype).newbyteorder("<")
+        if storage_dtype.kind not in {"f", "u", "i"}:
+            raise ValueError(f"Unsupported scalar field dtype: {storage_dtype.name}")
+        return storage_dtype
+
+    def _coerce_scalar_field_bytes(
+        self,
+        data: bytes,
+        dtype: str | None,
+        shape_tuple: tuple[int, ...],
+    ) -> tuple[bytes, np.ndarray, np.dtype]:
+        if dtype is None:
+            raise ValueError("dtype is required when scalar field data is bytes")
+        if len(shape_tuple) != 2:
+            raise ValueError("shape=[height, width] is required when scalar field data is bytes")
+
+        storage_dtype = self._scalar_field_storage_dtype(dtype)
+        expected = math.prod(shape_tuple) * storage_dtype.itemsize
+        if len(data) != expected:
+            raise ValueError(f"Scalar field byte payload has {len(data)} bytes; expected {expected}")
+
+        arr = np.frombuffer(data, dtype=storage_dtype).reshape(shape_tuple)
+        return data, arr, storage_dtype
+
+    def _coerce_scalar_field_array(
+        self,
+        data,
+        dtype: str | None,
+        shape_tuple: tuple[int, ...],
+    ) -> tuple[bytes, np.ndarray, np.dtype, tuple[int, ...]]:
+        arr = np.asarray(data)
+        if arr.ndim != 2:
+            raise ValueError("scalar_field_data requires a rank-2 array or explicit shape=[height, width]")
+        if len(shape_tuple) == 2 and shape_tuple != tuple(int(dim) for dim in arr.shape):
+            raise ValueError(f"shape={list(shape_tuple)} does not match scalar field array shape={list(arr.shape)}")
+
+        array_shape = tuple(int(dim) for dim in arr.shape)
+        storage_dtype = self._scalar_field_storage_dtype(dtype if dtype is not None else arr.dtype)
+        arr = np.ascontiguousarray(arr.astype(storage_dtype, copy=False))
+        return arr.tobytes(order="C"), arr, storage_dtype, array_shape
+
+    def _build_scalar_field_metadata(
+        self,
+        metadata,
+        shape_tuple: tuple[int, ...],
+        storage_dtype: np.dtype,
+        arr: np.ndarray,
+    ) -> dict:
+        if shape_tuple[0] <= 0 or shape_tuple[1] <= 0:
+            raise ValueError("Scalar field shape must be [height, width] with positive dimensions")
+
+        scalar_metadata = dict(metadata or {})
+        value_encoding = str(scalar_metadata.get("value_encoding", "direct") or "direct").strip().lower()
+        if value_encoding != "direct":
+            raise ValueError("Only value_encoding='direct' is supported for scalar fields currently")
+        scalar_metadata.update(
+            {
+                "format_version": 1,
+                "kind": "scalarField",
+                "rank": 2,
+                "shape": [int(shape_tuple[0]), int(shape_tuple[1])],
+                "dtype": storage_dtype.name,
+                "byte_order": "little",
+                "layout": "row-major",
+                "encoding": "raw",
+                "compression": "none",
+                "value_encoding": "direct",
+            }
+        )
+
+        if "min" not in scalar_metadata or "max" not in scalar_metadata:
+            if storage_dtype.kind == "f":
+                finite = arr[np.isfinite(arr)]
+            else:
+                finite = arr.reshape(-1)
+            if finite.size:
+                scalar_metadata.setdefault("min", float(np.min(finite)))
+                scalar_metadata.setdefault("max", float(np.max(finite)))
+
+        return scalar_metadata
+
+    def _coerce_scalar_field_input(
+        self,
+        data,
+        dtype: str | None,
+        shape: list[int] | tuple[int, int] | None,
+        metadata,
+        layout: str,
+        compression: str,
+        encoding: str,
+    ) -> tuple[bytes, dict]:
+        self._validate_scalar_field_storage_options(layout, compression, encoding)
+        shape_tuple = self._normalize_scalar_field_shape(shape)
+        data = self._normalize_scalar_field_input_data(data)
+
+        if isinstance(data, bytes):
+            payload, arr, storage_dtype = self._coerce_scalar_field_bytes(data, dtype, shape_tuple)
+        else:
+            payload, arr, storage_dtype, shape_tuple = self._coerce_scalar_field_array(data, dtype, shape_tuple)
+
+        if len(shape_tuple) != 2:
+            raise ValueError("Scalar field shape must be [height, width] with positive dimensions")
+
+        scalar_metadata = self._build_scalar_field_metadata(metadata, shape_tuple, storage_dtype, arr)
+        return payload, scalar_metadata
+
     def _normalize_visualization_variable_specs(self, variables, source_dataset: str | None):
         if isinstance(variables, (str, dict, tuple)):
             variable_list = [variables]
@@ -686,6 +859,31 @@ class Manager:  # pylint: disable=too-many-public-methods
         return ".png"
 
 
+def _load_json_object(path: str, label: str) -> dict:
+    with open(path, encoding="utf-8") as json_file:
+        data = json.load(json_file)
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    return data
+
+
+def _load_scalar_field_cli_input(args: argparse.Namespace) -> tuple[bytes | np.ndarray, dict]:
+    input_path = Path(args.file)
+    metadata = _load_json_object(args.metadata_json, "scalar field metadata") if args.metadata_json else {}
+    if args.value_encoding is not None:
+        metadata["value_encoding"] = args.value_encoding
+
+    if input_path.suffix.lower() == ".npy":
+        return np.load(input_path, allow_pickle=False), metadata
+    return input_path.read_bytes(), metadata
+
+
+def _require_manifest_fields(manifest: dict, required_fields: tuple[str, ...]) -> None:
+    missing = [field for field in required_fields if field not in manifest]
+    if missing:
+        raise ValueError(f"visualization sequence manifest is missing required field(s): {', '.join(missing)}")
+
+
 # pylint:disable = too-many-statements
 def main(args=None, prog=None):
     parser = ArgParser(args=args, prog=prog)
@@ -704,7 +902,14 @@ def main(args=None, prog=None):
         # print("--------------------------")
         n_cmd += 1
         create_allowed = True
-        if parser.args.command in ("info", "add-archival-storage", "archived-replica", "time-series", "upgrade"):
+        if parser.args.command in (
+            "info",
+            "visualization-sequence",
+            "add-archival-storage",
+            "archived-replica",
+            "time-series",
+            "upgrade",
+        ):
             create_allowed = False
         if n_cmd == 1:
             try:
@@ -727,6 +932,33 @@ def main(args=None, prog=None):
             manager.text(parser.args.files, parser.args.name, parser.args.store)
         elif parser.args.command == "image":
             manager.image(parser.args.file, parser.args.name, parser.args.store, parser.args.thumbnail)
+        elif parser.args.command == "scalar-field":
+            scalar_data, scalar_metadata = _load_scalar_field_cli_input(parser.args)
+            manager.scalar_field_data(
+                scalar_data,
+                name=parser.args.name,
+                dtype=parser.args.dtype,
+                shape=parser.args.shape,
+                metadata=scalar_metadata,
+                layout=parser.args.layout,
+                compression=parser.args.compression,
+                encoding=parser.args.encoding,
+                replica_name=parser.args.replica_name,
+            )
+        elif parser.args.command == "visualization-sequence":
+            manifest = _load_json_object(parser.args.manifest, "visualization sequence manifest")
+            _require_manifest_fields(manifest, ("name", "vis_type", "variables", "items"))
+            manager.visualization_sequence(
+                name=manifest["name"],
+                vis_type=manifest["vis_type"],
+                variables=manifest["variables"],
+                items=manifest["items"],
+                source_dataset=manifest.get("source_dataset"),
+                thumbnail_name=manifest.get("thumbnail_name"),
+                thumbnail_uuid=manifest.get("thumbnail_uuid"),
+                metadata=manifest.get("metadata"),
+                replace=bool(manifest.get("replace", False) or parser.args.replace),
+            )
         elif parser.args.command == "delete":
             if parser.args.uuid is not None:
                 for uid in parser.args.uuid:

@@ -40,6 +40,7 @@ dependencies = [
     "adios2 (>=2.12.0.1001)",
     "redis >= 5",
     "h5py >= 3.10",
+    "numpy >= 1.22",
     "pillow >= 12.1.1"
 ]
 
