@@ -124,6 +124,18 @@ Use `~/.config/hpc-campaign/hosts.yaml` to specify these access settings. ADIOS 
             serverpath: ~/adios/master/dtn/bin/adios2_remote_server -background -report_port_selection -v -v -l /global/homes/u/user007/dtn/log.adios2_remote_server -t 16
             verbose: 1
 
+    ClusterViaJump:
+        dtn-ssh:
+            protocol: ssh
+            host: login.example.org
+            user: user007
+            authentication: passcode
+            jumphost: jump.example.org
+            jumpuser: user007
+            jumpidentity_file: ~/.ssh/jump_key
+            serverpath: ~/dtn/sw/adios2/bin/adios2_remote_server -background -report_port_selection
+            verbose: 1
+
     UEDGE.Spin:
         spin:
             protocol: xrootd
