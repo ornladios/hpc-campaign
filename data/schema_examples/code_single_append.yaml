@@ -1,0 +1,12 @@
+schema_version: 1
+name: code_single_append
+
+files:
+  output:
+    role: time_series
+    mode: append
+    path: output.bp
+
+time:
+  file: output
+  variable: time

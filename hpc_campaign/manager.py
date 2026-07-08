@@ -12,12 +12,15 @@ import json
 import math
 import sqlite3
 import sys
+import zlib
 from io import BytesIO
 from os.path import exists
 from pathlib import Path
 from time import time_ns
 
+import nacl.secret
 import numpy as np
+import yaml
 from PIL import Image as PILImage
 
 from .info import InfoResult, collect_info, print_image_associations, print_info
@@ -38,6 +41,7 @@ from .manager_funcs import (
     set_default_args,
     update,
 )
+from .schema import SchemaInterpretationError, interpret_campaign_schema_layout
 from .upgrade import upgrade_aca
 from .utils import (
     check_campaign_store,
@@ -46,6 +50,7 @@ from .utils import (
 )
 
 CURRENT_TIME = time_ns()
+_CAMPAIGN_SCHEMA_NAME = "__campaign_schema.yaml"
 
 
 class Manager:  # pylint: disable=too-many-public-methods
@@ -190,6 +195,107 @@ class Manager:  # pylint: disable=too-many-public-methods
         if not self.connected:
             self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
+
+    def set_schema(self, schema_file: str | Path):
+        schema_path = Path(schema_file).expanduser()
+        if not schema_path.is_file():
+            raise FileNotFoundError(f"Schema file not found: {schema_path}")
+        if schema_path.stat().st_size == 0:
+            raise ValueError(f"Schema file is empty: {schema_path}")
+        cmd_args = self._build_command_args(
+            "text",
+            {
+                "files": [str(schema_path)],
+                "name": _CAMPAIGN_SCHEMA_NAME,
+                "store": True,
+                "filename_as_recorded": _CAMPAIGN_SCHEMA_NAME,
+            },
+        )
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        update(cmd_args, self.cur, self.con)
+
+    def validate_schema(self) -> dict:
+        if not self.connected:
+            self.open(create=False, truncate=False)
+
+        schema_text = self._read_embedded_schema_text()
+        try:
+            schema = yaml.safe_load(schema_text)
+        except yaml.YAMLError as exc:
+            raise SchemaInterpretationError(f"Invalid {_CAMPAIGN_SCHEMA_NAME}: {exc}") from exc
+        if not isinstance(schema, dict):
+            raise SchemaInterpretationError(f"{_CAMPAIGN_SCHEMA_NAME} must contain a mapping")
+
+        return interpret_campaign_schema_layout(
+            schema,
+            datasets=self._live_dataset_names(),
+            timeseries=self._time_series_membership(),
+        )
+
+    def _read_embedded_schema_text(self) -> str:
+        row = self.cur.execute(
+            """
+            select
+              r.keyid as keyid,
+              f.compression as compression,
+              f.data as data
+            from dataset as d
+            join replica as r on r.datasetid = d.rowid
+            join repfiles as rf on rf.replicaid = r.rowid
+            join file as f on f.fileid = rf.fileid
+            where d.name = ? and d.fileformat = 'TEXT' and d.deltime = 0 and r.deltime = 0
+            order by r.rowid desc, f.fileid desc
+            limit 1
+            """,
+            (_CAMPAIGN_SCHEMA_NAME,),
+        ).fetchone()
+
+        if row is None:
+            raise FileNotFoundError(f"{_CAMPAIGN_SCHEMA_NAME} is not stored in this campaign")
+
+        data = bytes(row["data"])
+        key_id = int(row["keyid"])
+        if key_id > 0:
+            if not self.args.encryption_key:
+                raise SchemaInterpretationError(
+                    f"{_CAMPAIGN_SCHEMA_NAME} is encrypted; open Manager with keyfile to validate"
+                )
+            box = nacl.secret.SecretBox(self.args.encryption_key)
+            data = box.decrypt(data)
+
+        if int(row["compression"]):
+            data = zlib.decompress(data)
+
+        return data.decode("utf-8")
+
+    def _live_dataset_names(self) -> list[str]:
+        rows = self.cur.execute(
+            """
+            select name
+            from dataset
+            where deltime = 0 and name != ?
+            order by name
+            """,
+            (_CAMPAIGN_SCHEMA_NAME,),
+        ).fetchall()
+        return [str(row["name"]) for row in rows]
+
+    def _time_series_membership(self) -> dict[str, list[str]]:
+        rows = self.cur.execute(
+            """
+            select t.name as timeseries_name, d.name as dataset_name
+            from timeseries as t
+            join dataset as d on d.tsid = t.tsid
+            where d.deltime = 0
+            order by t.name, d.tsorder
+            """
+        ).fetchall()
+
+        membership: dict[str, list[str]] = {}
+        for row in rows:
+            membership.setdefault(str(row["timeseries_name"]), []).append(str(row["dataset_name"]))
+        return membership
 
     def image(
         self,
@@ -930,6 +1036,8 @@ def main(args=None, prog=None):
             manager.data(parser.args.files, parser.args.name)
         elif parser.args.command == "text":
             manager.text(parser.args.files, parser.args.name, parser.args.store)
+        elif parser.args.command == "schema":
+            manager.set_schema(parser.args.schema_file)
         elif parser.args.command == "image":
             manager.image(parser.args.file, parser.args.name, parser.args.store, parser.args.thumbnail)
         elif parser.args.command == "scalar-field":

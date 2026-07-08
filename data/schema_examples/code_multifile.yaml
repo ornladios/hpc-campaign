@@ -1,0 +1,13 @@
+schema_version: 1
+name: code_multifile
+
+files:
+  fields:
+    role: time_series
+    mode: file_per_timestep
+    pattern: fields.*.bp
+    step_from_filename: 'fields\.(\d+)\.bp'
+
+time:
+  file: fields
+  index: step_index

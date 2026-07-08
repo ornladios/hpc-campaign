@@ -1,0 +1,20 @@
+schema_version: 1
+name: code_append_grid_multifile
+
+files:
+  grid:
+    role: time_series
+    mode: append
+    path: grid.bp
+
+  fields:
+    role: time_series
+    mode: file_per_timestep
+    pattern: fields.*.bp
+    step_from_filename: 'fields\.(\d+)\.bp'
+    associations:
+      grid: grid
+
+time:
+  file: grid
+  variable: time
