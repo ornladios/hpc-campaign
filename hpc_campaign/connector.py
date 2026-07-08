@@ -787,38 +787,73 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
     def login_connect_remote(self, req_def) -> SSHConnectRemote | None:
         remote_host_name = req_def["remote_host"]
         remote_user_name = req_def["username"]
+        remote_identity_file = req_def.get("identity_file")
         ssh_connected_remote = self.check_connected_remote(remote_host_name, remote_user_name)
         if ssh_connected_remote is not None:
             return ssh_connected_remote
 
         jump_host_name = req_def["jumphost"]
         jump_user_name = req_def["jumpuser"]
+        jump_identity_file = req_def.get("jumpidentity_file")
         ssh_connected_jump = None
         if jump_host_name is not None:
             ssh_connected_jump = self.check_connected_remote(jump_host_name, jump_user_name)
 
         ssh_connect_remote: SSHConnectRemote | None = None
+        ssh_connect_jump: SSHConnectRemote | None = None
 
         if req_def["auth"] == "publickey":
             ssh_connect_remote = SSHConnectRemote()
-            if req_def["identity_file"] is not None:
-                ssh_connect_remote.options.keyfile = expanduser(req_def["identity_file"])
-            error_no = ssh_connect_remote.connect_remote(
-                host_name=remote_host_name,
-                ssh_port=SSH_PORT,
-                user_name=remote_user_name,
-                user_pass=None,
-                sock_channel=None,
-            )
+            if remote_identity_file is not None:
+                ssh_connect_remote.options.keyfile = expanduser(remote_identity_file)
+            if jump_host_name is not None:
+                if ssh_connected_jump is not None:
+                    jump_info = ssh_connected_jump.get_remote_connection_info()
+                    if not jump_info or not jump_info.remote:
+                        return None
+                    connected_jump = jump_info.remote
+                else:
+                    ssh_connect_jump = SSHConnectRemote()
+                    if jump_identity_file is not None:
+                        ssh_connect_jump.options.keyfile = expanduser(jump_identity_file)
+                    error_no = ssh_connect_jump.connect_remote(
+                        host_name=jump_host_name,
+                        ssh_port=SSH_PORT,
+                        user_name=jump_user_name,
+                        user_pass=None,
+                        sock_channel=None,
+                    )
+                    if (error_no != SSH_NO_ERROR) or (ssh_connect_jump.remote is None):
+                        return None
+                    connected_jump = ssh_connect_jump.remote
+
+                error_no = ssh_connect_remote.connect_remote_via_jump(
+                    connected_jump=connected_jump,
+                    remote_host_name=remote_host_name,
+                    remote_ssh_port=SSH_PORT,
+                    remote_user_name=remote_user_name,
+                    remote_user_pass=None,
+                )
+            else:
+                error_no = ssh_connect_remote.connect_remote(
+                    host_name=remote_host_name,
+                    ssh_port=SSH_PORT,
+                    user_name=remote_user_name,
+                    user_pass=None,
+                    sock_channel=None,
+                )
             if error_no == SSH_NO_ERROR:
                 g_remote_conn_list.append(ssh_connect_remote)
+                if ssh_connect_jump is not None:
+                    g_remote_conn_list.append(ssh_connect_jump)
                 return ssh_connect_remote
             return None
 
         try_connect_cnt = 0
+        ssh_connected = False
         ssh_connect_remote = None
-        ssh_connect_jump = None
         while try_connect_cnt <= 3:
+            error_no = SSH_CONNECT_ERROR
             ssh_connect_remote = SSHConnectRemote()
             if ssh_connected_jump is not None:
                 remote_user = self.login_window_remote(
@@ -841,15 +876,25 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                     )
             elif jump_host_name is not None:
                 ssh_connect_jump = SSHConnectRemote()
-                jump_user, remote_user = self.login_window_jump_remote(
-                    try_connect_cnt,
-                    jump_host_name,
-                    remote_host_name,
-                    jump_user_name,
-                    remote_user_name,
-                    req_def["auth"].capitalize(),
-                    req_def["auth"].capitalize(),
-                )
+                if jump_identity_file is not None:
+                    ssh_connect_jump.options.keyfile = expanduser(jump_identity_file)
+                    remote_user = self.login_window_remote(
+                        try_connect_cnt,
+                        remote_host_name,
+                        remote_user_name,
+                        req_def["auth"].capitalize(),
+                    )
+                    jump_user = SSHUserInfo(jump_user_name, None)
+                else:
+                    jump_user, remote_user = self.login_window_jump_remote(
+                        try_connect_cnt,
+                        jump_host_name,
+                        remote_host_name,
+                        jump_user_name,
+                        remote_user_name,
+                        req_def["auth"].capitalize(),
+                        req_def["auth"].capitalize(),
+                    )
                 if remote_user.user_name is None:
                     ssh_connected = False
                     break
@@ -1022,6 +1067,9 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                             req_def["jumpuser"] = None
                             if "jumpuser" in service_data:
                                 req_def["jumpuser"] = service_data["jumpuser"]
+                            req_def["jumpidentity_file"] = None
+                            if "jumpidentity_file" in service_data:
+                                req_def["jumpidentity_file"] = service_data["jumpidentity_file"]
                             if "port" in service_data:
                                 req_def["remote_port"] = int(service_data["port"])
                             else:
@@ -1031,6 +1079,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                                 req_def["tunneltype"] = service_data["tunneltype"]
                             req_def["conn"] = service_data["protocol"]
                             req_def["auth"] = service_data["authentication"]
+                            req_def["identity_file"] = None
                             if "identity_file" in service_data:
                                 req_def["identity_file"] = service_data["identity_file"]
                             if ("local_port" not in req_qry) and ("local_port" in service_data):
@@ -1270,11 +1319,17 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                             req_def["jumpuser"] = None
                             if "jumpuser" in service_data:
                                 req_def["jumpuser"] = service_data["jumpuser"]
+                            req_def["jumpidentity_file"] = None
+                            if "jumpidentity_file" in service_data:
+                                req_def["jumpidentity_file"] = service_data["jumpidentity_file"]
                             req_def["tunneltype"] = "permanent"
                             if "tunneltype" in service_data:
                                 req_def["tunneltype"] = service_data["tunneltype"]
                             req_def["conn"] = service_data["protocol"]
                             req_def["auth"] = service_data["authentication"]
+                            req_def["identity_file"] = None
+                            if "identity_file" in service_data:
+                                req_def["identity_file"] = service_data["identity_file"]
                             return req_def
         return None
 
@@ -1307,6 +1362,8 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                 req_def["username"] = req_qry["ruser"][0]
             req_def["jumphost"] = None
             req_def["jumpuser"] = None
+            req_def["jumpidentity_file"] = None
+            req_def["identity_file"] = None
             if "jhost" in req_qry:
                 req_def["jumphost"] = req_qry["jhost"][0]
                 if "juser" in req_qry:
