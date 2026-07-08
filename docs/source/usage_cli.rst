@@ -144,7 +144,70 @@ Additional options for images include:
 * `\-\-store, -s` stores the image file directly in the campaign archive instead of just a reference.
 * `\-\-thumbnail <X> <Y>` stores a resized image with an X-by-Y resolution as a thumbnail, while referring to the original.
 
-**6. info**
+**6. scalar-field**
+
+Add a rank-2 scalar field to the archive. Raw scalar field files require an
+explicit shape and dtype. NumPy ``.npy`` files infer shape and dtype from the
+array unless these are supplied to validate or convert the input.
+
+Example usage:
+
+.. code-block:: bash
+
+  hpc_campaign manager demoproject/test_campaign_001 scalar-field pressure.000000.raw \
+    --name output/visualizations/pressure_scalar_field/scalar.000000.raw \
+    --shape 128 128 \
+    --dtype float32
+
+  hpc_campaign manager demoproject/test_campaign_001 scalar-field pressure.000000.npy \
+    --name output/visualizations/pressure_scalar_field/scalar.000000.raw
+
+
+Additional options for scalar fields include:
+
+* ``--layout`` scalar field memory layout. Currently only ``row-major`` is supported.
+* ``--encoding`` scalar field payload encoding. Currently only ``raw`` is supported.
+* ``--compression`` scalar field payload compression. Currently only ``none`` is supported.
+* ``--value-encoding`` scalar value representation. Currently only ``direct`` is supported.
+* ``--metadata-json <FILE>`` adds extra scalar field metadata from a JSON object.
+
+**7. visualization-sequence**
+
+Add or replace a visualization sequence from a JSON manifest. This is the
+recommended CLI path for scalar-field sequences because variables and items are
+structured data.
+
+Example manifest:
+
+.. code-block:: json
+
+  {
+    "name": "output/visualizations/pressure_scalar_field",
+    "vis_type": "heatmap",
+    "source_dataset": "output",
+    "variables": [{"name": "pressure", "role": "color-by"}],
+    "items": [
+      {
+        "type": "SCALAR_FIELD",
+        "name": "output/visualizations/pressure_scalar_field/scalar.000000.raw"
+      },
+      {
+        "type": "SCALAR_FIELD",
+        "name": "output/visualizations/pressure_scalar_field/scalar.000001.raw"
+      }
+    ],
+    "metadata": {"colormap": "viridis"},
+    "replace": true
+  }
+
+Example usage:
+
+.. code-block:: bash
+
+  hpc_campaign manager demoproject/test_campaign_001 visualization-sequence pressure_sequence.json
+
+
+**8. info**
 
 Prints the content and metadata of a campaign archive file.
 Example usage:
@@ -156,7 +219,7 @@ Example usage:
 The optional options allow listing replicas, entries that have been deleted and checksums. A complete list of options can be found in the help menu (`-h` option).
 
 
-**7. text**
+**9. text**
 
 Add one or more text files to the archive. If requested, text files are stored within the archive. In that case, zlib is used to compress the text file.
 
@@ -175,7 +238,7 @@ Additional options for text include:
 * `\-\-name, -n <NAME>` representation name for one text file in the campaign hierarchy
 * `\-\-store, -s` stores the text file directly in the campaign archive instead of just a reference.
 
-**8. time-series**
+**10. time-series**
 
 Organizes a sequence of datasets into a single named time-series. Subsequent calls with the same name will add datasets to the list, unless `\-\-replace` is used.
 
@@ -213,7 +276,7 @@ Additional options for text include:
 * `\-\-remove`  delete the time-series definition (but not the datasets)
 
 
-**9. upgrade**
+**11. upgrade**
 
 An ADIOS2 release will only read the latest ACA version and throw errors if an older ACA files is opened. The `upgrade` sub-command will modify the old ACA to jump to the next version. It may be called multiple times to get to the current version. This is an in-place conversion. If an error occurs during conversion, all changes are cancelled, leaving the original file intact. 
 
@@ -270,5 +333,4 @@ Comparing the campaign archive size to the data it points to can be done by the 
 
   $ du -sh /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
   127K     /path/to/adios-campaign-store/demoproject/test_campaign_001 info.aca
-
 

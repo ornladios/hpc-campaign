@@ -1,10 +1,13 @@
+import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
 from hpc_campaign.info import format_image_associations, format_info
 from hpc_campaign.manager import Manager
+from hpc_campaign.manager import main as manager_main
 from hpc_campaign.manager_args import ArgParser
 
 repo_root = Path(__file__).resolve().parents[1]
@@ -83,6 +86,184 @@ def test_manager_info_images_flag_is_parsed():
     assert parser.parse_next_command()
     assert parser.args.command == "info"
     assert parser.args.images is True
+
+
+def test_scalar_field_visualization_sequence(tmp_path: Path):
+    archive_name = "scalar_field_visualization.aca"
+    field = np.arange(12, dtype=np.float32).reshape(3, 4)
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+    manager.scalar_field_data(field, name="output/visualizations/temp/scalar.000000.raw")
+
+    visid = manager.visualization_sequence(
+        name="output/visualizations/temp",
+        vis_type="heatmap",
+        source_dataset="output",
+        variables=[{"name": "temp", "role": "primary"}],
+        items=[{"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000000.raw"}],
+        metadata={"colormap": "viridis"},
+    )
+
+    assert visid > 0
+
+    info_data = manager.info(list_replicas=True, list_files=True)
+    scalar_dataset = next(dataset for dataset in info_data.datasets.values() if dataset.file_format == "SCALAR_FIELD")
+    assert scalar_dataset.name == "output/visualizations/temp/scalar.000000.raw"
+    assert scalar_dataset.metadata is not None
+    assert scalar_dataset.metadata["kind"] == "scalarField"
+    assert scalar_dataset.metadata["shape"] == [3, 4]
+    assert scalar_dataset.metadata["dtype"] == "float32"
+    assert scalar_dataset.metadata["compression"] == "none"
+    assert scalar_dataset.metadata["encoding"] == "raw"
+    assert scalar_dataset.metadata["min"] == 0.0
+    assert scalar_dataset.metadata["max"] == 11.0
+
+    sequence_info = next(iter(info_data.visualization_sequences.values()))
+    assert sequence_info.items[0].item_type == "SCALAR_FIELD"
+    assert sequence_info.items[0].dataset_name == scalar_dataset.name
+    assert sequence_info.items[0].file_format == "SCALAR_FIELD"
+
+    assoc_text = format_image_associations(info_data)
+    assert "output/visualizations/temp/scalar.000000.raw: SCALAR_FIELD" in assoc_text
+    assert "sequence: output/visualizations/temp" in assoc_text
+    assert "variables: primary=temp@output" in assoc_text
+
+    manager.close()
+
+
+def test_scalar_field_data_preserves_array_dtype_by_default(tmp_path: Path):
+    archive_name = "scalar_field_dtype.aca"
+    field = np.arange(6, dtype=np.float64).reshape(2, 3)
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.scalar_field_data(field, name="output/visualizations/temp/scalar.000000.raw")
+
+    info_data = manager.info(list_replicas=True, list_files=True)
+    scalar_dataset = next(dataset for dataset in info_data.datasets.values() if dataset.file_format == "SCALAR_FIELD")
+    assert scalar_dataset.metadata is not None
+    assert scalar_dataset.metadata["shape"] == [2, 3]
+    assert scalar_dataset.metadata["dtype"] == "float64"
+    assert scalar_dataset.metadata["min"] == 0.0
+    assert scalar_dataset.metadata["max"] == 5.0
+
+    manager.close()
+
+
+def test_scalar_field_data_shape_validates_array_shape(tmp_path: Path):
+    archive_name = "scalar_field_shape.aca"
+    field = np.arange(6, dtype=np.float32).reshape(2, 3)
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+
+    with pytest.raises(ValueError, match="does not match scalar field array shape"):
+        manager.scalar_field_data(field, shape=(3, 2), name="output/visualizations/temp/scalar.000000.raw")
+
+
+def test_scalar_field_data_bytes_require_shape_and_dtype(tmp_path: Path):
+    archive_name = "scalar_field_bytes.aca"
+    field = np.arange(6, dtype=np.float32).reshape(2, 3)
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+
+    with pytest.raises(ValueError, match="dtype is required"):
+        manager.scalar_field_data(
+            field.tobytes(),
+            shape=field.shape,
+            name="output/visualizations/temp/missing_dtype.raw",
+        )
+
+    with pytest.raises(ValueError, match="shape=\\[height, width\\] is required"):
+        manager.scalar_field_data(field.tobytes(), dtype="float32", name="output/visualizations/temp/missing_shape.raw")
+
+    manager.open(create=True, truncate=True)
+    manager.scalar_field_data(
+        field.tobytes(),
+        shape=field.shape,
+        dtype="float32",
+        name="output/visualizations/temp/scalar.000000.raw",
+    )
+    info_data = manager.info(list_replicas=True, list_files=True)
+    scalar_dataset = next(dataset for dataset in info_data.datasets.values() if dataset.file_format == "SCALAR_FIELD")
+    assert scalar_dataset.metadata is not None
+    assert scalar_dataset.metadata["shape"] == [2, 3]
+    assert scalar_dataset.metadata["dtype"] == "float32"
+
+    manager.close()
+
+
+def test_scalar_field_sequence_rejects_mismatched_shape_or_dtype(tmp_path: Path):
+    archive_name = "scalar_field_sequence_mismatch.aca"
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+
+    manager.scalar_field_data(
+        np.arange(6, dtype=np.float32).reshape(2, 3),
+        name="output/visualizations/temp/scalar.000000.raw",
+    )
+    manager.scalar_field_data(
+        np.arange(6, dtype=np.float32).reshape(3, 2),
+        name="output/visualizations/temp/scalar.000001.raw",
+    )
+    with pytest.raises(ValueError, match="compatible metadata"):
+        manager.visualization_sequence(
+            name="output/visualizations/temp_shape",
+            vis_type="heatmap",
+            source_dataset="output",
+            variables=[{"name": "temp", "role": "primary"}],
+            items=[
+                {"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000000.raw"},
+                {"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000001.raw"},
+            ],
+        )
+
+    manager.scalar_field_data(
+        np.arange(6, dtype=np.float64).reshape(2, 3),
+        name="output/visualizations/temp/scalar.000002.raw",
+    )
+    with pytest.raises(ValueError, match="compatible metadata"):
+        manager.visualization_sequence(
+            name="output/visualizations/temp_dtype",
+            vis_type="heatmap",
+            source_dataset="output",
+            variables=[{"name": "temp", "role": "primary"}],
+            items=[
+                {"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000000.raw"},
+                {"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000002.raw"},
+            ],
+        )
+
+    manager.close()
+
+
+def test_visualization_sequence_rejects_mixed_item_types(tmp_path: Path):
+    archive_name = "visualization_mixed_items.aca"
+    image_path = tmp_path / "thumb.png"
+    Image.new("RGB", (8, 8), color="green").save(image_path)
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+    manager.image(str(image_path), name="thumb")
+    manager.scalar_field_data(
+        np.arange(6, dtype=np.float32).reshape(2, 3),
+        name="output/visualizations/temp/scalar.000000.raw",
+    )
+
+    with pytest.raises(ValueError, match="mixed item types are not supported"):
+        manager.visualization_sequence(
+            name="output/visualizations/mixed",
+            vis_type="heatmap",
+            source_dataset="output",
+            variables=[{"name": "temp", "role": "primary"}],
+            items=[
+                {"type": "IMAGE", "name": "thumb"},
+                {"type": "SCALAR_FIELD", "name": "output/visualizations/temp/scalar.000000.raw"},
+            ],
+        )
+
+    manager.close()
 
 
 def test_visualization_sequence_multi_source_with_thumbnail(tmp_path: Path):
@@ -414,5 +595,147 @@ def test_visualization_axis_semantics_and_exact_sequence_name(tmp_path: Path):
         ("y-axis", "mass", "output"),
     ]
     assert sequence_info.items[0].dataset_name == "custom/sequence/name/image.000000.png"
+
+    manager.close()
+
+
+def test_scalar_field_cli_raw_file_requires_shape_and_dtype(tmp_path: Path):
+    archive_name = "scalar_field_cli_raw.aca"
+    raw_path = tmp_path / "scalar.raw"
+    field = np.arange(6, dtype=np.float32).reshape(2, 3)
+    raw_path.write_bytes(field.tobytes())
+
+    with pytest.raises(ValueError, match="dtype is required"):
+        manager_main(
+            args=[
+                "--campaign_store",
+                str(tmp_path),
+                "--truncate",
+                archive_name,
+                "scalar-field",
+                str(raw_path),
+                "--name",
+                "output/visualizations/temp/scalar.missing_dtype.raw",
+                "--shape",
+                "2",
+                "3",
+            ],
+            prog="hpc_campaign manager",
+        )
+
+    with pytest.raises(ValueError, match="shape=\\[height, width\\] is required"):
+        manager_main(
+            args=[
+                "--campaign_store",
+                str(tmp_path),
+                "--truncate",
+                archive_name,
+                "scalar-field",
+                str(raw_path),
+                "--name",
+                "output/visualizations/temp/scalar.missing_shape.raw",
+                "--dtype",
+                "float32",
+            ],
+            prog="hpc_campaign manager",
+        )
+
+    metadata_path = tmp_path / "scalar_metadata.json"
+    metadata_path.write_text(json.dumps({"source_step": 0}), encoding="utf-8")
+    manager_main(
+        args=[
+            "--campaign_store",
+            str(tmp_path),
+            "--truncate",
+            archive_name,
+            "scalar-field",
+            str(raw_path),
+            "--name",
+            "output/visualizations/temp/scalar.000000.raw",
+            "--shape",
+            "2",
+            "3",
+            "--dtype",
+            "float32",
+            "--value-encoding",
+            "direct",
+            "--metadata-json",
+            str(metadata_path),
+        ],
+        prog="hpc_campaign manager",
+    )
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    info_data = manager.info(list_replicas=True, list_files=True)
+    scalar_dataset = next(dataset for dataset in info_data.datasets.values() if dataset.file_format == "SCALAR_FIELD")
+    assert scalar_dataset.metadata is not None
+    assert scalar_dataset.metadata["shape"] == [2, 3]
+    assert scalar_dataset.metadata["dtype"] == "float32"
+    assert scalar_dataset.metadata["source_step"] == 0
+
+    manager.close()
+
+
+def test_scalar_field_cli_npy_and_visualization_sequence_manifest(tmp_path: Path):
+    archive_name = "scalar_field_cli_sequence.aca"
+    npy_path = tmp_path / "scalar.npy"
+    field = np.arange(6, dtype=np.float64).reshape(2, 3)
+    np.save(npy_path, field)
+
+    manifest_path = tmp_path / "sequence.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "name": "output/visualizations/temp_scalar_field",
+                "vis_type": "heatmap",
+                "source_dataset": "output",
+                "variables": [{"name": "temp", "role": "color-by"}],
+                "items": [
+                    {
+                        "type": "SCALAR_FIELD",
+                        "name": "output/visualizations/temp_scalar_field/scalar.000000.raw",
+                    }
+                ],
+                "metadata": {"colormap": "viridis"},
+                "replace": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manager_main(
+        args=[
+            "--campaign_store",
+            str(tmp_path),
+            "--truncate",
+            archive_name,
+            "data",
+            str(data_dir / "onearray.h5"),
+            "--name",
+            "output",
+            "scalar-field",
+            str(npy_path),
+            "--name",
+            "output/visualizations/temp_scalar_field/scalar.000000.raw",
+            "visualization-sequence",
+            str(manifest_path),
+        ],
+        prog="hpc_campaign manager",
+    )
+
+    manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
+    info_data = manager.info(list_replicas=True, list_files=True)
+    scalar_dataset = next(dataset for dataset in info_data.datasets.values() if dataset.file_format == "SCALAR_FIELD")
+    assert scalar_dataset.metadata is not None
+    assert scalar_dataset.metadata["shape"] == [2, 3]
+    assert scalar_dataset.metadata["dtype"] == "float64"
+
+    sequence_info = next(iter(info_data.visualization_sequences.values()))
+    assert sequence_info.name == "output/visualizations/temp_scalar_field"
+    assert sequence_info.items[0].item_type == "SCALAR_FIELD"
+    assert sequence_info.items[0].dataset_name == scalar_dataset.name
+    assert [(entry.role, entry.name, entry.source_dataset_name) for entry in sequence_info.variables] == [
+        ("color-by", "temp", "output")
+    ]
 
     manager.close()

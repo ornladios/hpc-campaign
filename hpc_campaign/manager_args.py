@@ -10,6 +10,8 @@ __accepted_commands__ = [
     "data",
     "text",
     "image",
+    "scalar-field",
+    "visualization-sequence",
     "add-archival-storage",
     "archived-replica",
     "time-series",
@@ -238,6 +240,88 @@ The archive can '--store' directly the image file, or store a --thumbnail with X
             help="Store a resized image with resolution of x-by-y and refer to original",
         )
 
+        # parser for the "scalar-field" command
+        parser_scalar_field = argparse.ArgumentParser(
+            prog=f"{prog} <archive> scalar-field",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Add a rank-2 scalar field to the archive. NumPy .npy inputs infer shape and
+dtype automatically unless overridden. Raw byte inputs require --shape and
+--dtype so that the payload can be interpreted unambiguously.
+""",
+        )
+        parsers["scalar-field"] = parser_scalar_field
+        parser_scalar_field.add_argument("file", help="raw scalar field file or NumPy .npy file")
+        parser_scalar_field.add_argument(
+            "--name",
+            "-n",
+            default=None,
+            help="Representation name in the campaign hierarchy",
+        )
+        parser_scalar_field.add_argument(
+            "--shape",
+            nargs=2,
+            default=None,
+            type=int,
+            metavar=("height", "width"),
+            help="Scalar field shape. Required for raw files; validates .npy array shape when supplied.",
+        )
+        parser_scalar_field.add_argument(
+            "--dtype",
+            default=None,
+            help="NumPy dtype for the scalar field. Required for raw files; converts .npy arrays when supplied.",
+        )
+        parser_scalar_field.add_argument(
+            "--layout",
+            default="row-major",
+            help="Scalar field memory layout. Currently only row-major is supported.",
+        )
+        parser_scalar_field.add_argument(
+            "--encoding",
+            default="raw",
+            help="Scalar field payload encoding. Currently only raw is supported.",
+        )
+        parser_scalar_field.add_argument(
+            "--compression",
+            default="none",
+            help="Scalar field payload compression. Currently only none is supported.",
+        )
+        parser_scalar_field.add_argument(
+            "--value-encoding",
+            default=None,
+            help="Scalar value representation. Currently only direct is supported.",
+        )
+        parser_scalar_field.add_argument(
+            "--metadata-json",
+            default=None,
+            metavar="file",
+            help="Optional JSON object with extra scalar field metadata.",
+        )
+        parser_scalar_field.add_argument(
+            "--replica-name",
+            default=None,
+            help="Optional replica name to store in the archive.",
+        )
+
+        # parser for the "visualization-sequence" command
+        parser_vis_sequence = argparse.ArgumentParser(
+            prog=f"{prog} <archive> visualization-sequence",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Add or replace a visualization sequence from a JSON manifest. The manifest
+contains the same fields as the Python Manager.visualization_sequence() API:
+name, vis_type, variables, items, and optional source_dataset, thumbnail_name,
+thumbnail_uuid, metadata, and replace.
+""",
+        )
+        parsers["visualization-sequence"] = parser_vis_sequence
+        parser_vis_sequence.add_argument("manifest", help="JSON visualization sequence manifest")
+        parser_vis_sequence.add_argument(
+            "--replace",
+            help="Replace an existing visualization sequence with the same name",
+            action="store_true",
+        )
+
         # parser for the "add-archival-storage" command
         parser_addarchive = argparse.ArgumentParser(
             prog=f"{prog} <archive>  add-archival-storage",
@@ -352,10 +436,25 @@ One may need to run upgrade several times to reach the newest format.
             del args.show_checksum
             del args.list_replicas
             del args.list_files
+            del args.images
         elif command == "delete":
             del args.name
             del args.uuid
             del args.replica
+        elif command == "scalar-field":
+            del args.file
+            del args.name
+            del args.shape
+            del args.dtype
+            del args.layout
+            del args.encoding
+            del args.compression
+            del args.value_encoding
+            del args.metadata_json
+            del args.replica_name
+        elif command == "visualization-sequence":
+            del args.manifest
+            del args.replace
         elif command == "add-archival-storage":
             del args.host
             del args.system
