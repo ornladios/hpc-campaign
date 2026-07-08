@@ -1,0 +1,19 @@
+schema_version: 1
+name: code_static_grid_multifile
+
+files:
+  grid:
+    role: static
+    path: grid.bp
+
+  fields:
+    role: time_series
+    mode: file_per_timestep
+    pattern: fields.*.bp
+    step_from_filename: 'fields\.(\d+)\.bp'
+    associations:
+      grid: grid
+
+time:
+  file: fields
+  index: step_index

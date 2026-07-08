@@ -1,0 +1,19 @@
+schema_version: 1
+name: code_append_grid_append
+
+files:
+  grid:
+    role: time_series
+    mode: append
+    path: grid.bp
+
+  fields:
+    role: time_series
+    mode: append
+    path: fields.bp
+    associations:
+      grid: grid
+
+time:
+  file: fields
+  variable: time

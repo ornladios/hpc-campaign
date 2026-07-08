@@ -840,7 +840,8 @@ def process_text_files(
         ds_id = add_dataset_to_archive(dataset, cur, unique_id, "TEXT", ct)
         rep_id = add_replica_to_archive(host_id, dir_id, 0, key_id, entry, cur, ds_id, ct, filesize, indent="  ")
         if args.store:
-            add_file_to_archive(args, entry, cur, rep_id, ct, basename(entry))
+            filename_as_recorded = str(getattr(args, "filename_as_recorded", "") or basename(entry))
+            add_file_to_archive(args, entry, cur, rep_id, ct, filename_as_recorded)
 
 
 def process_image(

@@ -1,0 +1,49 @@
+schema_version: 1
+name: code_xgc
+
+files:
+  mesh:
+    role: static
+    path: xgc.mesh.bp
+
+  f0_mesh:
+    role: static
+    path: xgc.f0.mesh.bp
+
+  xgc_3d:
+    role: time_series
+    mode: file_per_timestep
+    pattern: xgc.3d.*.bp
+    step_from_filename: 'xgc\.3d\.(\d+)\.bp'
+    associations:
+      mesh: mesh
+    time:
+      variable: time
+
+  xgc_f3d:
+    role: time_series
+    mode: file_per_timestep
+    pattern: xgc.f3d.*.bp
+    step_from_filename: 'xgc\.f3d\.(\d+)\.bp'
+    associations:
+      mesh: mesh
+      f0_mesh: f0_mesh
+    time:
+      variable: time
+
+  xgc_fsourcediag:
+    role: time_series
+    mode: file_per_timestep
+    pattern: xgc.fsourcediag.*.bp
+    step_from_filename: 'xgc\.fsourcediag\.(\d+)\.bp'
+    associations:
+      mesh: mesh
+    time:
+      variable: time
+
+  xgc_oneddiag:
+    role: time_series
+    mode: append
+    path: xgc.oneddiag.bp
+    time:
+      variable: time

@@ -166,7 +166,7 @@ def set_default_args_from_config(args: Namespace, read_host_config: bool = False
     return args
 
 
-sql_error_list = []
+sql_error_list: list[sqlite3.OperationalError] = []
 
 
 def sql_execute(cur: sqlite3.Cursor, cmd: str, parameters=()) -> sqlite3.Cursor:

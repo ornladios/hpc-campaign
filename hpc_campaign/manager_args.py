@@ -9,6 +9,7 @@ __accepted_commands__ = [
     "info",
     "data",
     "text",
+    "schema",
     "image",
     "scalar-field",
     "visualization-sequence",
@@ -88,7 +89,7 @@ class ArgParser:
             if len(args.files) > 1:
                 raise ValueError("Invalid arguments for text: when using --name <name>, only one text file is allowed")
 
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-locals,too-many-statements
     def setup_args(self, prog: str | None) -> dict:
         parser = argparse.ArgumentParser(
             prog=prog,
@@ -211,6 +212,17 @@ so be mindful about the size of the resulting archive. Text is stored compressed
             help="Representation name in the campaign hierarchy",
         )
         parser_text.add_argument("--store", "-s", help="Store image in campaign", action="store_true")
+
+        # parser for the "schema" command
+        parser_schema = argparse.ArgumentParser(
+            prog=f"{prog} <archive> schema",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Store a campaign ingestion schema as embedded __campaign_schema.yaml text.
+""",
+        )
+        parsers["schema"] = parser_schema
+        parser_schema.add_argument("schema_file", help="schema file to store in the campaign")
 
         # parser for the "image" command
         parser_image = argparse.ArgumentParser(
@@ -426,6 +438,8 @@ One may need to run upgrade several times to reach the newest format.
             del args.name
             del args.files
             del args.store
+        elif command == "schema":
+            del args.schema_file
         elif command == "image":
             del args.name
             del args.file
