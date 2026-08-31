@@ -1,0 +1,33 @@
+docker-ssh:
+  localhost-ssh:
+    protocol: ssh
+    host: ssh-service.docker.hpc-campaign
+    user: campaign
+    authentication: publickey
+    identity_file: /run/ssh/client_key
+    serverpath: /usr/local/bin/adios2_remote_server
+    args: -background -report_port_selection
+    verbose: 0
+
+docker-xrootd:
+  xrootd-http:
+    protocol: xrootd
+    transfer_protocol: http
+    host: xrootd-service.docker.hpc-campaign
+    port: 8080
+    verbose: 0
+
+docker-https:
+  https-transport:
+    protocol: https
+    endpoint: https://https-service.docker.hpc-campaign
+    verbose: 0
+
+docker-rustfs:
+  s3-transport:
+    protocol: s3
+    profile: hpc-campaign-rustfs
+    endpoint: http://s3-service.docker.hpc-campaign:9000
+    AWS_EC2_METADATA: false
+    recheck_metadata: false
+    verbose: 0

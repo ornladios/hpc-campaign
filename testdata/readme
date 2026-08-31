@@ -1,0 +1,4 @@
+This is a pre-generated data directory, that we use for testing
+- created campaigns with various locations/protocols
+    - local disk vs ssh vs https vs s3 vs xrootd access
+    - tar files vs individual files

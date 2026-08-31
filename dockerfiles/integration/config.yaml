@@ -1,0 +1,5 @@
+Campaign:
+  hostname: docker
+  campaignstorepath: /campaigns
+  cachepath: /tmp/hpc-campaign-cache
+  verbose: 0

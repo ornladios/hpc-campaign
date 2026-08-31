@@ -1,0 +1,4 @@
+[profile hpc-campaign-rustfs]
+region = us-east-1
+s3 =
+    addressing_style = path

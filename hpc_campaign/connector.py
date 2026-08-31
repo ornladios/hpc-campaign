@@ -764,7 +764,9 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
         remote_user = SSHUserInfo(g_remote_user, g_remote_pass)
         return jump_user, remote_user
 
-    def check_connected_remote(self, remote_host_name: str, remote_user_name: str) -> SSHConnectRemote | None:
+    def check_connected_remote(
+        self, remote_host_name: str, remote_user_name: str, remote_ssh_port: int = SSH_PORT
+    ) -> SSHConnectRemote | None:
         for srvr in g_remote_conn_list:
             srvr_info = srvr.get_remote_connection_info()
             if srvr_info:
@@ -778,8 +780,10 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                         srvr_info.remote.user.user_name,
                     )
                 )
-                if (srvr_info.remote.server.host_name == remote_host_name) and (
-                    srvr_info.remote.user.user_name == remote_user_name
+                if (
+                    (srvr_info.remote.server.host_name == remote_host_name)
+                    and (srvr_info.remote.server.host_port == remote_ssh_port)
+                    and (srvr_info.remote.user.user_name == remote_user_name)
                 ):
                     return srvr
         return None
@@ -788,7 +792,10 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
         remote_host_name = req_def["remote_host"]
         remote_user_name = req_def["username"]
         remote_identity_file = req_def.get("identity_file")
-        ssh_connected_remote = self.check_connected_remote(remote_host_name, remote_user_name)
+        remote_ssh_port = int(req_def.get("ssh_port", SSH_PORT))
+        if remote_ssh_port <= 0:
+            remote_ssh_port = SSH_PORT
+        ssh_connected_remote = self.check_connected_remote(remote_host_name, remote_user_name, remote_ssh_port)
         if ssh_connected_remote is not None:
             return ssh_connected_remote
 
@@ -797,7 +804,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
         jump_identity_file = req_def.get("jumpidentity_file")
         ssh_connected_jump = None
         if jump_host_name is not None:
-            ssh_connected_jump = self.check_connected_remote(jump_host_name, jump_user_name)
+            ssh_connected_jump = self.check_connected_remote(jump_host_name, jump_user_name, SSH_PORT)
 
         ssh_connect_remote: SSHConnectRemote | None = None
         ssh_connect_jump: SSHConnectRemote | None = None
@@ -830,14 +837,14 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                 error_no = ssh_connect_remote.connect_remote_via_jump(
                     connected_jump=connected_jump,
                     remote_host_name=remote_host_name,
-                    remote_ssh_port=SSH_PORT,
+                    remote_ssh_port=remote_ssh_port,
                     remote_user_name=remote_user_name,
                     remote_user_pass=None,
                 )
             else:
                 error_no = ssh_connect_remote.connect_remote(
                     host_name=remote_host_name,
-                    ssh_port=SSH_PORT,
+                    ssh_port=remote_ssh_port,
                     user_name=remote_user_name,
                     user_pass=None,
                     sock_channel=None,
@@ -870,7 +877,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                     error_no = ssh_connect_remote.connect_remote_via_jump(
                         connected_jump=jump_info.remote,
                         remote_host_name=remote_host_name,
-                        remote_ssh_port=SSH_PORT,
+                        remote_ssh_port=remote_ssh_port,
                         remote_user_name=remote_user.user_name,
                         remote_user_pass=remote_user.user_pass,
                     )
@@ -914,7 +921,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                     error_no = ssh_connect_remote.connect_remote_via_jump(
                         connected_jump=ssh_connect_jump.remote,
                         remote_host_name=remote_host_name,
-                        remote_ssh_port=SSH_PORT,
+                        remote_ssh_port=remote_ssh_port,
                         remote_user_name=remote_user.user_name,
                         remote_user_pass=remote_user.user_pass,
                     )
@@ -930,7 +937,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                     break
                 error_no = ssh_connect_remote.connect_remote(
                     host_name=remote_host_name,
-                    ssh_port=SSH_PORT,
+                    ssh_port=remote_ssh_port,
                     user_name=remote_user.user_name,
                     user_pass=remote_user.user_pass,
                     sock_channel=None,
@@ -1070,10 +1077,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                             req_def["jumpidentity_file"] = None
                             if "jumpidentity_file" in service_data:
                                 req_def["jumpidentity_file"] = service_data["jumpidentity_file"]
-                            if "port" in service_data:
-                                req_def["remote_port"] = int(service_data["port"])
-                            else:
-                                req_def["remote_port"] = -1
+                            req_def["ssh_port"] = int(service_data.get("port", SSH_PORT))
                             req_def["tunneltype"] = "permanent"
                             if "tunneltype" in service_data:
                                 req_def["tunneltype"] = service_data["tunneltype"]
@@ -1313,6 +1317,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                             if "user" in service_data:
                                 req_def["username"] = service_data["user"]
                             req_def["remote_host"] = service_data["host"]
+                            req_def["ssh_port"] = int(service_data.get("port", SSH_PORT))
                             req_def["jumphost"] = None
                             if "jumphost" in service_data:
                                 req_def["jumphost"] = service_data["jumphost"]
@@ -1357,6 +1362,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
                 self.send_response("port:-1,msg:missing_remote_host_in_request")
                 return
             req_def["remote_host"] = req_qry["rhost"][0]
+            req_def["ssh_port"] = SSH_PORT
             req_def["username"] = None
             if "ruser" in req_qry:
                 req_def["username"] = req_qry["ruser"][0]
@@ -1390,7 +1396,7 @@ class MyTCPHandler(socket_server.BaseRequestHandler):
         ssh_tunnel_client = SSHLocalRemoteTunnel(ssh_connect_remote)
 
         remote_host = req_def["remote_host"]
-        remote_port = SSH_PORT
+        remote_port = req_def["ssh_port"]
         dest_host = req_def["dest_host"]
         dest_port = int(req_def["dest_port"])
         remote_srvr = SSHServerInfo(dest_host, dest_port)

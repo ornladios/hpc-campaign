@@ -1,0 +1,15 @@
+.git
+.github
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+.vscode
+*.aca
+*.log
+__pycache__
+bugs.txt
+codex_refactor_*.cmd
+debug
+dump.kstar
+log.*

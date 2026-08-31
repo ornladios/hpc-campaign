@@ -1,0 +1,47 @@
+services:
+  developer:
+    profiles: ["develop"]
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: integration-development
+      additional_contexts:
+        adios2-source: "${ADIOS2_DEV_SOURCE:?Set ADIOS2_DEV_SOURCE to an absolute local ADIOS2 checkout}"
+    command: ["sleep", "infinity"]
+    stdin_open: true
+    tty: true
+    working_dir: /workspace/hpc-campaign
+    environment:
+      ADIOS2_DEV_BUILD_TESTING: "${ADIOS2_DEV_BUILD_TESTING:-OFF}"
+      ADIOS2_DEV_BUILD_TYPE: "${ADIOS2_DEV_BUILD_TYPE:-RelWithDebInfo}"
+      BUILD_JOBS: "${BUILD_JOBS:-8}"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      https-service.docker.hpc-campaign:
+        condition: service_healthy
+      s3-service.docker.hpc-campaign:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      ssh-service.docker.hpc-campaign:
+        condition: service_healthy
+      xrootd-service.docker.hpc-campaign:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /workspace/hpc-campaign
+      - type: bind
+        source: "${ADIOS2_DEV_SOURCE:?Set ADIOS2_DEV_SOURCE to an absolute local ADIOS2 checkout}"
+        target: /workspace/ADIOS2
+      - adios2-dev-build:/workspace/ADIOS2-build
+      - adios2-dev-install:/opt/adios2-dev
+      - campaign-data:/srv:ro
+      - campaign-store:/campaigns
+
+volumes:
+  adios2-dev-build:
+  adios2-dev-install:

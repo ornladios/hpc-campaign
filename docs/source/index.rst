@@ -9,3 +9,7 @@ HPC Campaign Management
    usage_cli
    usage_api
 
+.. toctree::
+   :caption: Developer guide
+
+   developer/index

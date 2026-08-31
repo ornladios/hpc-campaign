@@ -1,0 +1,159 @@
+name: hpc-campaign-integration
+
+services:
+  s3-service.docker.hpc-campaign:
+    image: rustfs/rustfs@sha256:1cfa82fb394a7c6a4ffc24f5333b52afee608d258503f94b37fcce5cc965c896
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: HPC_CAMPAIGN_TEST
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOGGER_LEVEL: error
+      RUSTFS_SECRET_KEY: hpc-campaign-test-secret
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fsS http://127.0.0.1:9000/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  setup:
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: integration-setup
+    command:
+      - python
+      - -m
+      - tests.integration.create_campaigns
+      - --source
+      - /app/testdata
+      - --data-root
+      - /srv/data
+      - --campaign-store
+      - /campaigns
+      - --upload-s3
+      - --s3-endpoint
+      - http://s3-service.docker.hpc-campaign:9000
+    depends_on:
+      s3-service.docker.hpc-campaign:
+        condition: service_healthy
+    volumes:
+      - campaign-data:/srv
+      - campaign-store:/campaigns
+    restart: "no"
+
+  https-service.docker.hpc-campaign:
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: https-service
+    ports:
+      - "127.0.0.1:8443:443"
+    volumes:
+      - campaign-data:/srv:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 443), 2).close()"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  ssh-service.docker.hpc-campaign:
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: ssh-service
+      additional_contexts:
+        adios2-source: ${ADIOS2_SOURCE:-https://github.com/ornladios/ADIOS2.git#master}
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - campaign-data:/srv:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/22"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  xrootd-service.docker.hpc-campaign:
+    image: eisenhauer/adios2-xrootd-http@sha256:2e131f613ae19421f8a5a870a630b91cc75fdbfb71713b12478a305556045e7d
+    # The upstream entrypoint creates a mode-600 runtime TLS key before it
+    # starts xrootd. Running as xrootd ensures that key has the right owner.
+    user: "194:194"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - campaign-data:/srv:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/_adios/stats"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  runner:
+    profiles: ["manual"]
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: integration
+      additional_contexts:
+        adios2-source: ${ADIOS2_SOURCE:-https://github.com/ornladios/ADIOS2.git#master}
+    stdin_open: true
+    tty: true
+    depends_on:
+      https-service.docker.hpc-campaign:
+        condition: service_healthy
+      s3-service.docker.hpc-campaign:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      ssh-service.docker.hpc-campaign:
+        condition: service_healthy
+      xrootd-service.docker.hpc-campaign:
+        condition: service_healthy
+    volumes:
+      - campaign-data:/srv:ro
+      - campaign-store:/campaigns
+
+  integration-tests:
+    profiles: ["test"]
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: integration
+      additional_contexts:
+        adios2-source: ${ADIOS2_SOURCE:-https://github.com/ornladios/ADIOS2.git#master}
+    command: ["python", "-m", "tests.integration.verify_campaigns_incontainer", "--campaign-store", "/campaigns"]
+    depends_on:
+      https-service.docker.hpc-campaign:
+        condition: service_healthy
+      s3-service.docker.hpc-campaign:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      ssh-service.docker.hpc-campaign:
+        condition: service_healthy
+      xrootd-service.docker.hpc-campaign:
+        condition: service_healthy
+    volumes:
+      - campaign-data:/srv:ro
+      - campaign-store:/campaigns
+
+volumes:
+  campaign-data:
+  campaign-store:
+  rustfs-data:
