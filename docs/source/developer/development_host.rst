@@ -124,6 +124,8 @@ Configure host access
 Merge the following entries into ``${config_dir}/hosts.yaml``. Do not replace
 unrelated host definitions already in that file::
 
+   docker: local
+
    docker-https:
      docker-https-loopback:
        protocol: https

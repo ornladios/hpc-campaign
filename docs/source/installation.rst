@@ -100,6 +100,8 @@ Use `~/.config/hpc-campaign/hosts.yaml` to specify these access settings. ADIOS 
 
 - S3 protocol to reach Amazon AWS cloud as well as other S3-compatible storages. Set up an AWS profile (the S3 access key id and secret key in `~/.aws/credentials`) and use that profile name here. 
 
+- HTTPS: standard https services will work out of the box, but if you need to point to a certificate authority or change the default port, you can set it up here too. 
+
 
 .. code-block:: bash
 
@@ -152,3 +154,11 @@ Use `~/.config/hpc-campaign/hosts.yaml` to specify these access settings. ADIOS 
             AWS_EC2_METADATA: false
             recheck_metadata: false
             verbose: 0
+
+    docker-https:
+        docker-https-loopback:
+            protocol: https
+            endpoint: https://127.0.0.1:8443
+            ca_file: ~/.config/hpc-campaign/certs/docker-https-ca.crt
+            verbose: 0
+            
