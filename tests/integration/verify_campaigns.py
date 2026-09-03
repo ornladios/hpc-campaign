@@ -19,6 +19,25 @@ EXPECTED_REMOTE_HOSTS = {
 }
 
 
+def summarize_failure(output: str, returncode: int) -> str:
+    """Return a one-line exception summary from captured child output."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    for index in range(len(lines) - 1, -1, -1):
+        if "[ADIOS2 EXCEPTION]" in lines[index]:
+            return " ".join(lines[index:])
+    if lines:
+        return lines[-1]
+    return f"child process exited with status {returncode}"
+
+
+def campaign_dataset_name(selection: str) -> str:
+    """Return the catalog dataset containing a dataset or variable selection."""
+    for dataset_path in sorted(DATASET_PATHS, key=len, reverse=True):
+        if selection == dataset_path or selection.startswith(f"{dataset_path}/"):
+            return dataset_path
+    raise ValueError(f"Unknown integration dataset or variable: {selection}")
+
+
 def verify_metadata(campaign_path: Path) -> None:
     with sqlite3.connect(campaign_path) as connection:
         datasets = connection.execute("select name, fileformat from dataset where deltime = 0 order by name").fetchall()
@@ -62,9 +81,10 @@ def verify_campaign(
             raise AssertionError(f"Campaign has no readable variables: {campaign_path.name}")
         variables_read = []
         for dataset_path in dataset_paths:
-            dataset_variables = [
-                name for name in variables if name == dataset_path or name.startswith(f"{dataset_path}/")
-            ]
+            if dataset_path in variables:
+                dataset_variables = [dataset_path]
+            else:
+                dataset_variables = [name for name in variables if name.startswith(f"{dataset_path}/")]
             if not dataset_variables:
                 raise AssertionError(f"Campaign has no variable for {dataset_path}: {campaign_path.name}")
             reader.read(dataset_variables[0])
@@ -78,8 +98,16 @@ def verify_campaign(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read every Docker integration campaign")
     parser.add_argument("--campaign-store", type=Path, default=Path("/campaigns"))
-    parser.add_argument("--single-campaign", help=argparse.SUPPRESS)
-    parser.add_argument("--single-dataset", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--single-campaign",
+        metavar="CAMPAIGN",
+        help="verify only CAMPAIGN instead of every campaign",
+    )
+    parser.add_argument(
+        "--single-dataset",
+        metavar="DATASET",
+        help="read only DATASET or variable from each selected campaign",
+    )
     parser.add_argument("--read-timeout", type=float, default=15)
     return parser.parse_args()
 
@@ -87,18 +115,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.single_campaign and args.single_dataset:
+        include_dataset = campaign_dataset_name(args.single_dataset)
         verify_campaign(
             args.campaign_store / args.single_campaign,
             (args.single_dataset,),
-            rf"^{re.escape(args.single_dataset)}$",
+            rf"^{re.escape(include_dataset)}$",
         )
         return
 
+    campaign_names = (args.single_campaign,) if args.single_campaign else CAMPAIGN_NAMES
+    dataset_paths = (args.single_dataset,) if args.single_dataset else DATASET_PATHS
+
     failures: list[tuple[str, str, str]] = []
-    for name in CAMPAIGN_NAMES:
+    for name in campaign_names:
         campaign_path = args.campaign_store / name
         verify_metadata(campaign_path)
-        for dataset_path in DATASET_PATHS:
+        for dataset_path in dataset_paths:
             try:
                 result = subprocess.run(
                     [
@@ -128,14 +160,11 @@ def main() -> None:
                 continue
 
             output = result.stderr or result.stdout
-            message = next(
-                (line.strip() for line in reversed(output.splitlines()) if line.strip()),
-                f"child process exited with status {result.returncode}",
-            )
+            message = summarize_failure(output, result.returncode)
             failures.append((name, dataset_path, message))
             print(f"FAIL {name}: {dataset_path}: {message}")
 
-    total = len(CAMPAIGN_NAMES) * len(DATASET_PATHS)
+    total = len(campaign_names) * len(dataset_paths)
     if failures:
         print(f"\n{total - len(failures)} reads passed; {len(failures)} of {total} reads failed:")
         for campaign_name, dataset_path, message in failures:
