@@ -98,6 +98,7 @@ RUN apt-get update \
         libxrootd-dev \
         ninja-build \
         pkg-config \
+        xrootd-server \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -213,6 +214,26 @@ RUN chown -R campaign:campaign /home/campaign/.ssh \
 
 ENTRYPOINT ["/usr/sbin/sshd"]
 CMD ["-D", "-e", "-o", "PasswordAuthentication=no", "-o", "PermitRootLogin=no", "-o", "PubkeyAuthentication=yes", "-o", "AllowUsers=campaign"]
+
+
+FROM integration AS xrootd-service
+
+COPY --from=integration-secrets /run/integration-secrets/https.crt /tmp/server.crt
+COPY --from=integration-secrets /run/integration-secrets/https.key /tmp/server.key
+COPY --from=adios2-source scripts/docker/spin-xrootd/xrootd-http.cfg /etc/xrootd/xrootd-http.cfg
+COPY --from=adios2-source scripts/docker/spin-xrootd/docker-entrypoint.sh /docker-entrypoint.sh
+
+RUN sed -i 's|/usr/local/lib64/|/usr/local/lib/|g' /etc/xrootd/xrootd-http.cfg \
+    && chmod 755 /docker-entrypoint.sh \
+    && chmod 644 /tmp/server.crt /tmp/server.key \
+    && mkdir -p /var/log/xrootd /var/spool/xrootd /run/xrootd /tmp/adios \
+    && chmod -R 1777 /var/log/xrootd /var/spool/xrootd /run/xrootd /tmp/adios
+
+ENV ADIOS2_XROOTD_ACCESSLOG=/var/log/xrootd/access.jsonl
+
+EXPOSE 8080
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
 
 # Keep this last so a plain `docker build -f dockerfiles/Dockerfile .` has the

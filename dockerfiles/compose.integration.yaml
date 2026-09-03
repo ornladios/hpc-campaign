@@ -87,10 +87,12 @@ services:
       retries: 30
 
   xrootd-service.docker.hpc-campaign:
-    image: eisenhauer/adios2-xrootd-http@sha256:2e131f613ae19421f8a5a870a630b91cc75fdbfb71713b12478a305556045e7d
-    # The upstream entrypoint creates a mode-600 runtime TLS key before it
-    # starts xrootd. Running as xrootd ensures that key has the right owner.
-    user: "194:194"
+    build:
+      context: ..
+      dockerfile: dockerfiles/Dockerfile
+      target: xrootd-service
+      additional_contexts:
+        adios2-source: ${ADIOS2_SOURCE:-https://github.com/ornladios/ADIOS2.git#master}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
