@@ -193,7 +193,7 @@ def test_replace_document_uses_optimistic_hash_and_rolls_back_conflict(tmp_path:
     manager.close()
 
 
-def test_standard_upgrade_from_0_7_preserves_existing_dataset_uuid(tmp_path: Path):
+def test_adding_provenance_to_0_7_preserves_existing_dataset_uuid(tmp_path: Path):
     manager = _new_manager(tmp_path, "upgrade.aca")
     dataset_id = uuid.uuid4()
     manager.con.execute(
@@ -204,8 +204,9 @@ def test_standard_upgrade_from_0_7_preserves_existing_dataset_uuid(tmp_path: Pat
         ("output.bp", str(dataset_id)),
     )
 
-    # Build a representative 0.7 ACA from the current test database. The
-    # normal upgrade API must add only the new provenance storage structures.
+    # Build a representative legacy 0.7 ACA from the current test database.
+    # The normal upgrade API adds provenance storage without changing the ACA
+    # version that ADIOS CampaignReader supports.
     manager.con.execute("DROP TABLE provenance_document")
     manager.con.execute("DROP TABLE campaign_identity")
     manager.con.execute("UPDATE info SET version = '0.7' WHERE id = 'ACA'")
@@ -216,7 +217,7 @@ def test_standard_upgrade_from_0_7_preserves_existing_dataset_uuid(tmp_path: Pat
     with pytest.raises(ProvenanceStorageError, match="upgrade this ACA"):
         manager.prov_document(uuid.uuid4())
 
-    assert manager.upgrade() == "0.8"
+    assert manager.upgrade() == "0.7"
     assert isinstance(manager.campaign_uuid(), uuid.UUID)
     stored_dataset = manager.con.execute(
         "SELECT uuid, name, fileformat FROM dataset WHERE name = 'output.bp'"
@@ -224,6 +225,6 @@ def test_standard_upgrade_from_0_7_preserves_existing_dataset_uuid(tmp_path: Pat
     stored_version = manager.con.execute("SELECT version FROM info WHERE id = 'ACA'").fetchone()[0]
 
     assert tuple(stored_dataset) == (str(dataset_id), "output.bp", "ADIOS")
-    assert stored_version == "0.8"
+    assert stored_version == "0.7"
     assert manager.prov_documents() == []
     manager.close()

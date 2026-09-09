@@ -53,7 +53,8 @@ def create_provenance_tables(cursor: sqlite3.Cursor, campaign_id: uuid.UUID | No
     """Create Phase 2 tables and assign the ACA a persistent campaign UUID.
 
     The caller owns the surrounding database transaction. This function is
-    used both for a new ACA and by the standard 0.7 -> 0.8 upgrade step.
+    used both for a new ACA and when adding provenance storage to a legacy 0.7
+    archive.
     """
 
     resolved_id = campaign_id or uuid.uuid4()
