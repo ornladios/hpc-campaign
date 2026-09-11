@@ -13,15 +13,18 @@ import math
 import sqlite3
 import sys
 import zlib
+from collections.abc import Mapping, Sequence
 from io import BytesIO
 from os.path import exists
 from pathlib import Path
 from time import time_ns
+from uuid import UUID
 
 import nacl.secret
 import numpy as np
 import yaml
 from PIL import Image as PILImage
+from prov.model import ProvDocument, QualifiedName
 
 from .info import InfoResult, collect_info, print_image_associations, print_info
 from .key import read_key
@@ -41,6 +44,8 @@ from .manager_funcs import (
     set_default_args,
     update,
 )
+from .prov_store import ProvDocumentInfo, ProvStore
+from .provenance import ActivityResult, CampaignProvenance, VariableSpec
 from .schema import SchemaInterpretationError, interpret_campaign_schema_layout
 from .upgrade import upgrade_aca
 from .utils import (
@@ -598,6 +603,173 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         new_version = upgrade_aca(self.args, self.cur, self.con)
         return new_version
+
+    def campaign_uuid(self) -> UUID:
+        """Return the stable public identity stored inside this ACA."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return ProvStore(self.con).campaign_uuid()
+
+    def add_prov_document(
+        self,
+        document: ProvDocument,
+        *,
+        name: str,
+        activate: bool = False,
+    ) -> UUID:
+        """Store a canonical PROV-JSON document and return its stable UUID."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        info = ProvStore(self.con).add_document(document, name=name, active=activate)
+        return info.document_id
+
+    def prov_documents(self, *, active: bool | None = None) -> list[ProvDocumentInfo]:
+        """List stored provenance documents without loading their content."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return ProvStore(self.con).documents(active=active)
+
+    def prov_document(self, document_id: UUID | str) -> ProvDocument:
+        """Load and verify one stored provenance document by UUID or name."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return ProvStore(self.con).document(document_id)
+
+    def set_prov_document_active(
+        self,
+        document_id: UUID | str,
+        *,
+        active: bool = True,
+    ) -> ProvDocumentInfo:
+        """Promote an imported PROV document into or out of the active graph."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return ProvStore(self.con).set_document_active(document_id, active=active)
+
+    def export_prov(self, document_id: UUID | str, path: str | Path) -> None:
+        """Export the exact canonical PROV-JSON stored in the campaign."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        ProvStore(self.con).export_document(document_id, path)
+
+    def add_agent(
+        self,
+        kind: str,
+        name: str | None = None,
+        *,
+        version: str | None = None,
+        agent_id: UUID | None = None,
+    ) -> QualifiedName:
+        """Add a responsible person, software package, organization, or instrument."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_agent(
+            kind,
+            name,
+            version=version,
+            agent_id=agent_id,
+        )
+
+    def add_plan(
+        self,
+        name: str,
+        *,
+        location: str | None = None,
+        value: str | None = None,
+        plan_id: UUID | None = None,
+    ) -> QualifiedName:
+        """Add a workflow, configuration, script, or other PROV Plan."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_plan(
+            name,
+            location=location,
+            value=value,
+            plan_id=plan_id,
+        )
+
+    def add_run(
+        self,
+        name: str,
+        *,
+        run_id: UUID | None = None,
+        plan: QualifiedName | None = None,
+        agent: QualifiedName | None = None,
+    ) -> QualifiedName:
+        """Add one simulation execution and its optional Agent/Plan association."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_run(
+            name,
+            run_id=run_id,
+            plan=plan,
+            agent=agent,
+        )
+
+    def add_variable(
+        self,
+        *,
+        run: QualifiedName,
+        dataset: str,
+        variable: str,
+        definition: str,
+        variable_id: UUID | None = None,
+        units: str | None = None,
+        coordinate_system: str | None = None,
+        generated_by_run: bool = True,
+    ) -> QualifiedName:
+        """Add one stable logical variable backed by an existing ACA dataset."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_variable(
+            run=run,
+            dataset=dataset,
+            variable=variable,
+            definition=definition,
+            variable_id=variable_id,
+            units=units,
+            coordinate_system=coordinate_system,
+            generated_by_run=generated_by_run,
+        )
+
+    def add_activity(
+        self,
+        action: str,
+        *,
+        inputs: Mapping[str, QualifiedName],
+        outputs: Mapping[str, VariableSpec],
+        derivations: Mapping[str, Sequence[str]] | None = None,
+        context: Mapping[str, QualifiedName] | None = None,
+        action_spec: Mapping[str, object] | None = None,
+        agent: QualifiedName | None = None,
+        plan: QualifiedName | None = None,
+        activity_id: UUID | None = None,
+    ) -> ActivityResult:
+        """Add a campaign processing Activity with explicit scientific lineage."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_activity(
+            action,
+            inputs=inputs,
+            outputs=outputs,
+            derivations=derivations,
+            context=context,
+            action_spec=action_spec,
+            agent=agent,
+            plan=plan,
+            activity_id=activity_id,
+        )
 
     def normalize_files(self, files: list[str | Path] | str | Path) -> list[str]:
         if isinstance(files, (str, Path)):

@@ -42,7 +42,8 @@ dependencies = [
     "redis >= 5",
     "h5py >= 3.10",
     "pillow >= 12.3.0",
-    "numpy >= 1.22"
+    "numpy >= 1.22",
+    "prov >= 3.1.0, < 4"
 ]
 
 [project.urls]

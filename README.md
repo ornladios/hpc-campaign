@@ -9,6 +9,19 @@ See [Installation](https://hpc-campaign.readthedocs.io/en/latest/installation.ht
 # hpc-campaign
 HPC Campaign Management is a set of Python scripts for creating small metadata files about large datasets in one or more locations, which can be shared among project users, and which refer back to the real data. 
 
+## Provenance hello world
+
+The smallest provenance example records a simulation pressure variable, a
+reduced pressure variable derived from it, and a visualization derived from the
+reduced pressure:
+
+```
+python examples/provenance_hello_world.py /tmp/provenance-hello-world
+```
+
+The command creates a campaign archive and exports its W3C PROV graph as
+`/tmp/provenance-hello-world/provenance-hello-world.json`.
+
 A Campaign Archive file can contain
 
 - metadata of ADIOS2 BP5 datasets 

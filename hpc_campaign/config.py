@@ -12,6 +12,8 @@ ACA_VERSION = "0.7"
 # 0.5 reorganized to "dataset" table, plus text and images, replicas, archives
 # 0.6 redefines "archive" as TAR files, throws away 0.5's archive concept
 # 0.7 separates file metadata from replica links via repfiles
+# Persistent campaign identity and canonical PROV-JSON documents are currently
+# an additive extension to 0.7 so ADIOS CampaignReader remains compatible.
 
 REDIS_PORT = 6379
 

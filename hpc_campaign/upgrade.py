@@ -2,6 +2,7 @@ import argparse
 import sqlite3
 
 from .config import ACA_VERSION
+from .prov_store import create_provenance_tables
 from .utils import sql_commit, sql_error_list, sql_execute
 
 
@@ -139,6 +140,28 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     return "0.6"
 
 
+def _has_provenance_storage(cur: sqlite3.Cursor) -> bool:
+    res = sql_execute(
+        cur,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('campaign_identity', 'provenance_document')",
+    )
+    return {row[0] for row in res.fetchall()} == {"campaign_identity", "provenance_document"}
+
+
+def _add_provenance_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
+    """Add provenance storage to a legacy 0.7 archive without relabeling it."""
+
+    print("Add provenance storage to ACA 0.7")
+    create_provenance_tables(cur)
+    if len(sql_error_list) == 0:
+        sql_commit(con)
+        return "0.7"
+
+    print("SQL Errors detected, drop all changes.")
+    con.rollback()
+    return "0.7"
+
+
 UPGRADESTEP = {
     "0.5": {"new_version": "0.6", "func": _upgrade_to_0_6},
     "0.6": {"new_version": "0.7", "func": _upgrade_to_0_7},
@@ -159,5 +182,8 @@ def upgrade_aca(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Conn
         else:
             print("This version cannot be upgraded")
     else:
-        print(f"This archive has the latest version already: {ACA_VERSION}")
+        if not _has_provenance_storage(cur):
+            new_version = _add_provenance_to_0_7(args, cur, con)
+        else:
+            print(f"This archive has the latest version already: {ACA_VERSION}")
     return new_version

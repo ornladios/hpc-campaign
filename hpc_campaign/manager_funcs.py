@@ -31,6 +31,7 @@ from PIL import Image
 
 from .config import ACA_VERSION
 from .hdf5_metadata import copy_hdf5_file_without_data, is_hdf5_dataset
+from .prov_store import create_provenance_tables
 from .taridx import TARTYPES
 from .utils import (
     CURRENT_TIME,
@@ -1753,6 +1754,7 @@ def create_tables(campaign_file_name: str, con: sqlite3.Connection):
     )
     ensure_visualization_tables(cur, con)
     ensure_scalar_field_tables(cur, con)
+    create_provenance_tables(cur)
     sql_execute(
         cur,
         "create table archiveidx"

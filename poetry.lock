@@ -1299,6 +1299,25 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
+name = "prov"
+version = "3.1.0"
+description = "A library for W3C Provenance Data Model supporting PROV-JSON, PROV-XML, PROV-O (RDF) and PROV-JSONLD"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "prov-3.1.0-py3-none-any.whl", hash = "sha256:c70f2785e353bc3366f4711d7a5488380249026498fcf6274c71f783f2773545"},
+    {file = "prov-3.1.0.tar.gz", hash = "sha256:e3ecbf6345e46b1958b286bd1b090c5baffa942015ecf04b44a8cc63830f8a92"},
+]
+
+[package.extras]
+dot = ["networkx (>=2.0)", "pydot (>=1.2.0)"]
+graph = ["networkx (>=2.0)"]
+plot = ["matplotlib (>=3.6)", "networkx (>=2.0)", "pydot (>=1.2.0)"]
+rdf = ["rdflib (>=7.0.0,<8)"]
+xml = ["lxml (>=3.3.5)"]
+
+[[package]]
 name = "pycparser"
 version = "2.23"
 description = "C parser in Python"
@@ -1716,4 +1735,4 @@ markers = {main = "python_version == \"3.10\""}
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "96ebcb1a8ba842d9b5b03cf5cf7d5edfe545713c36ac3ef70301fa1f03b69934"
+content-hash = "cc1835e876808587445f1f85e38bb17667bb9bf6b8d7159b844bdeee69376084"
