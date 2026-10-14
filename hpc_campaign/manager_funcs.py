@@ -12,7 +12,9 @@ import csv
 import glob
 import json
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import uuid
 import zlib
@@ -57,6 +59,7 @@ SCALAR_FIELD_SEQUENCE_COMPATIBILITY_KEYS = (
 )
 SUPPORTED_VISUALIZATION_ITEM_FORMATS = {
     "IMAGE": "IMAGE",
+    "VIDEO": "VIDEO",
     SCALAR_FIELD_FORMAT: SCALAR_FIELD_FORMAT,
 }
 
@@ -932,6 +935,75 @@ def process_image(
             remove(thumbfilename)
 
 
+def probe_video_frame_count(file_path: str | Path) -> int | None:
+    """Return the first video stream's frame count when ffprobe is available."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return None
+
+    base_command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=nb_frames,nb_read_frames",
+        "-of",
+        "json",
+        str(file_path),
+    ]
+    for command in (base_command, base_command[:1] + ["-count_frames"] + base_command[1:]):
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            continue
+        try:
+            streams = json.loads(result.stdout).get("streams", [])
+            if not streams:
+                return None
+            stream = streams[0]
+            count = stream.get("nb_read_frames") or stream.get("nb_frames")
+            frame_count = int(count)
+            if frame_count > 0:
+                return frame_count
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return None
+
+
+def process_video(
+    args: argparse.Namespace,
+    cur: sqlite3.Cursor,
+    host_id: int,
+    dir_id: int,
+    key_id: int,
+    dirpath: str,
+    location: str,
+):
+    """Register an opaque video file and optionally embed its bytes."""
+    file_path = str(args.file)
+    dataset_name = str(args.name or file_path)
+    statres = stat(file_path)
+    mod_time = statres.st_mtime_ns
+    file_size = statres.st_size
+    unique_id = uuid.uuid3(uuid.NAMESPACE_URL, location + "/" + file_path).hex
+    dataset_id = add_dataset_to_archive(dataset_name, cur, unique_id, "VIDEO", mod_time)
+    replica_id = add_replica_to_archive(
+        host_id,
+        dir_id,
+        0,
+        key_id,
+        file_path,
+        cur,
+        dataset_id,
+        mod_time,
+        file_size,
+        indent="  ",
+    )
+    if args.store:
+        add_file_to_archive(args, file_path, cur, replica_id, mod_time, basename(file_path), compress=False)
+
+
 def process_image_data(
     args: argparse.Namespace,
     cur: sqlite3.Cursor,
@@ -1669,7 +1741,7 @@ def add_archival_storage(
 
 def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
     long_host_name, short_host_name = get_host_name(args)
-    verbose = is_verbose(args) if args.command == "image" else True
+    verbose = is_verbose(args) if args.command in {"image", "video"} else True
 
     host_id = add_host_name(long_host_name, short_host_name, cur, verbose=verbose)
     key_id = add_key_id(args.encryption_key_id, cur, verbose=verbose)
@@ -1688,6 +1760,8 @@ def update(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connectio
         process_text_files(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
     elif args.command == "image":
         process_image(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
+    elif args.command == "video":
+        process_video(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
 
     sql_commit(con)
 
