@@ -3,6 +3,7 @@ import uuid
 import pytest
 from prov.model import (
     PROV,
+    ProvActivity,
     ProvAssociation,
     ProvAttribution,
     ProvDerivation,
@@ -82,6 +83,36 @@ def test_logical_variables_have_stable_unversioned_entity_identities():
     assert pressure.get_attribute(HPC["revision"]) == set()
 
 
+def test_simulation_is_an_activity_that_generates_source_variables():
+    graph = build_pressure_workflow_example(CAMPAIGN_ID)
+    simulation = _one_record(graph.document, graph.records["simulation"])
+
+    assert isinstance(simulation, ProvActivity)
+    assert HPC["Simulation"] in simulation.get_asserted_types()
+    assert not [usage for usage in graph.document.get_records(ProvUsage) if usage.args[0] == simulation.identifier]
+    assert any(
+        generation.args[:2] == (graph.records["pressure"], simulation.identifier)
+        for generation in graph.document.get_records(ProvGeneration)
+    )
+
+
+def test_representative_image_is_a_dataset_product_instead_of_a_variable():
+    graph = build_pressure_workflow_example(CAMPAIGN_ID)
+    image = _one_record(graph.document, graph.records["image"])
+
+    assert image.get_asserted_types() == {HPC["Dataset"], HPC["Image"]}
+    assert image.identifier.localpart.startswith("dataset_")
+    assert image.get_attribute(HPC["format"]) == {"IMAGE"}
+
+
+def test_reduction_metadata_is_stored_on_the_activity():
+    graph = build_pressure_workflow_example(CAMPAIGN_ID)
+    reduction = _one_record(graph.document, graph.records["reduction"])
+
+    assert reduction.get_attribute(HPC["metadata"]) == {'{"error_bound":0.0001,"method":"mgard"}'}
+    assert not any(HPC["ActionSpecification"] in record.get_asserted_types() for record in graph.document.get_records())
+
+
 def test_qualified_derivations_reference_exact_activity_generation_and_usage():
     graph = build_pressure_workflow_example(CAMPAIGN_ID)
     document = graph.document
@@ -111,7 +142,7 @@ def test_qualified_derivations_reference_exact_activity_generation_and_usage():
         assert generation.args[:2] == (graph.records["image"], graph.records["visualization"])
         assert usage.args[:2] == (graph.records["visualization"], used_entity)
         assert generation.get_attribute(PROV["role"]) == {HPC["image"]}
-        assert usage.get_attribute(PROV["role"]) in ({HPC["color"]}, {HPC["annotation"]})
+        assert usage.get_attribute(PROV["role"]) in ({HPC["color_by"]}, {HPC["annotation"]})
 
 
 def test_activity_context_is_not_silently_promoted_to_scientific_lineage():

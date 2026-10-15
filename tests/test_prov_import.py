@@ -88,6 +88,20 @@ def test_unknown_campaign_activity_type_is_allowed_with_stable_activity_id(tmp_p
     manager.close()
 
 
+def test_obsolete_run_identifier_is_rejected_on_activation(tmp_path: Path):
+    manager = _new_manager(tmp_path)
+    identifiers = CampaignProvIds(manager.campaign_uuid())
+    document = ProvDocument()
+    document.add_namespace(identifiers.namespace)
+    obsolete_activity = identifiers.namespace[f"run_{uuid.uuid4().hex}"]
+    document.activity(obsolete_activity, other_attributes=[(PROV["type"], HPC["SimulationRun"])])
+
+    with pytest.raises(ProvenanceValidationError, match="unsupported campaign-qualified identifier"):
+        manager.add_prov_document(document, name="obsolete-run-model", activate=True)
+    assert all(item.name != "obsolete-run-model" for item in manager.prov_documents())
+    manager.close()
+
+
 def test_unresolved_document_is_preserved_inactive_then_activated_with_support(tmp_path: Path):
     manager = _new_manager(tmp_path)
     example = Namespace("example", "urn:example:")
@@ -211,7 +225,7 @@ def test_deactivation_cannot_leave_dangling_active_relationships(tmp_path: Path)
 
 def test_reserved_authored_document_cannot_be_deactivated(tmp_path: Path):
     manager = _new_manager(tmp_path)
-    manager.add_run("run-001")
+    manager.add_agent("software", "example")
     before = _document_state(manager, DEFAULT_PROV_DOCUMENT_NAME)
 
     with pytest.raises(ProvenanceStorageError, match="cannot be deactivated"):
@@ -268,4 +282,164 @@ def test_campaign_qualified_usage_role_must_match_stable_identifier(tmp_path: Pa
         manager.set_prov_document_active(document_id)
 
     assert not manager.prov_documents(active=False)[0].active
+    manager.close()
+
+
+@pytest.mark.parametrize("self_cycle", [False, True])
+def test_cyclic_import_is_preserved_inactive_and_activation_is_atomic(tmp_path: Path, self_cycle):
+    manager = _new_manager(tmp_path)
+    example = Namespace("example", "urn:cycle:")
+    support = ProvDocument()
+    support.add_namespace(example)
+    support.entity(example["a"])
+    support.entity(example["b"])
+    if not self_cycle:
+        support.wasDerivedFrom(example["b"], example["a"])
+    manager.add_prov_document(support, name="support", activate=True)
+    support_before = _document_state(manager, "support")
+    cyclic = ProvDocument()
+    cyclic.add_namespace(example)
+    cyclic.wasDerivedFrom(example["a"], example["a"] if self_cycle else example["b"])
+    imported_id = manager.add_prov_document(cyclic, name="cycle", activate=False)
+    before = _document_state(manager, "cycle")
+
+    with pytest.raises(ProvenanceValidationError, match="derivation cycle"):
+        manager.set_prov_document_active(imported_id)
+    assert _document_state(manager, "cycle") == before
+    assert _document_state(manager, "support") == support_before
+    with pytest.raises(ProvenanceValidationError, match="derivation cycle"):
+        manager.add_prov_document(cyclic, name="active-cycle", activate=True)
+    assert "active-cycle" not in {item.name for item in manager.prov_documents()}
+    manager.close()
+
+
+def test_long_acyclic_import_and_repeated_derivations_are_accepted(tmp_path: Path):
+    manager = _new_manager(tmp_path)
+    example = Namespace("example", "urn:chain:")
+    document = ProvDocument()
+    document.add_namespace(example)
+    entities = [example[f"item_{index}"] for index in range(1200)]
+    for entity in entities:
+        document.entity(entity)
+    for parent, child in zip(entities, entities[1:], strict=False):
+        document.wasDerivedFrom(child, parent)
+    document_id = manager.add_prov_document(document, name="chain", activate=True)
+    repeated = ProvDocument()
+    repeated.add_namespace(example)
+    repeated.wasDerivedFrom(entities[-1], entities[0])
+    repeated.wasDerivedFrom(entities[-1], entities[0])
+    manager.add_prov_document(repeated, name="shared-ancestor", activate=True)
+    manager.add_prov_document(repeated, name="repeated-assertions", activate=True)
+
+    assert len(list(manager.prov_document(document_id).get_records(ProvDerivation))) == 1199
+    manager.close()
+
+
+def _qualified_derivation_document(manager, defect=None, campaign_ids=False):
+    """Build a minimal graph whose references can disagree independently."""
+
+    identifiers = CampaignProvIds(manager.campaign_uuid())
+    example = Namespace("example", "urn:qualified:")
+    document = ProvDocument()
+    document.add_namespace(example)
+    document.add_namespace(HPC)
+    document.add_namespace(identifiers.namespace)
+    entities = [
+        identifiers.entity(uuid.uuid4()) if campaign_ids else example[name] for name in ("source", "result", "other")
+    ]
+    for entity in entities:
+        document.entity(entity)
+    source, result, other = entities
+    activity_id = uuid.uuid4()
+    activity = identifiers.activity(activity_id) if campaign_ids else example["activity"]
+    other_activity = identifiers.activity(uuid.uuid4()) if campaign_ids else example["other_activity"]
+    document.activity(activity)
+    document.activity(other_activity)
+    generation = identifiers.generation(activity_id, "result") if campaign_ids else example["generation"]
+    usage = identifiers.usage(activity_id, "source") if campaign_ids else example["usage"]
+    if defect == "generation_type":
+        document.entity(generation)
+    else:
+        document.wasGeneratedBy(
+            result, activity, identifier=generation, other_attributes=[(PROV["role"], HPC["result"])]
+        )
+    if defect == "usage_type":
+        document.entity(usage)
+    else:
+        document.used(activity, source, identifier=usage, other_attributes=[(PROV["role"], HPC["source"])])
+    derivation = identifiers.derivation(activity_id, "result", "source") if campaign_ids else example["derivation"]
+    document.wasDerivedFrom(
+        other if defect == "generated_entity" else result,
+        other if defect == "used_entity" else source,
+        other_activity if defect == "activity" else activity,
+        generation,
+        usage,
+        identifier=derivation,
+    )
+    return document
+
+
+@pytest.mark.parametrize("defect", ["generated_entity", "used_entity", "activity"])
+@pytest.mark.parametrize("campaign_ids", [False, True])
+def test_qualified_derivation_must_match_actual_relationship_endpoints(tmp_path: Path, defect, campaign_ids):
+    manager = _new_manager(tmp_path)
+    document = _qualified_derivation_document(manager, defect, campaign_ids)
+    document_id = manager.add_prov_document(document, name="inconsistent", activate=False)
+    before = _document_state(manager, "inconsistent")
+
+    with pytest.raises(ProvenanceValidationError, match="Derivation (Entity|Activity) disagrees"):
+        manager.set_prov_document_active(document_id)
+    assert _document_state(manager, "inconsistent") == before
+    manager.close()
+
+
+@pytest.mark.parametrize("defect", ["generation_type", "usage_type"])
+def test_qualified_derivation_rejects_references_to_wrong_record_types(tmp_path: Path, defect):
+    manager = _new_manager(tmp_path)
+    document = _qualified_derivation_document(manager, defect)
+    with pytest.raises(ProvenanceValidationError, match="must identify a Prov(Generation|Usage)"):
+        manager.add_prov_document(document, name="wrong-record-type", activate=True)
+    assert "wrong-record-type" not in {item.name for item in manager.prov_documents()}
+    manager.close()
+
+
+@pytest.mark.parametrize("campaign_ids", [False, True])
+def test_qualified_derivation_can_resolve_relationships_in_another_active_document(tmp_path: Path, campaign_ids):
+    manager = _new_manager(tmp_path)
+    complete = _qualified_derivation_document(manager, campaign_ids=campaign_ids)
+    support = ProvDocument()
+    derivation_only = ProvDocument()
+    for namespace in complete.get_registered_namespaces():
+        support.add_namespace(namespace)
+        derivation_only.add_namespace(namespace)
+    for record in complete.get_records():
+        (derivation_only if isinstance(record, ProvDerivation) else support).add_record(record)
+    manager.add_prov_document(support, name="support", activate=True)
+    imported_id = manager.add_prov_document(derivation_only, name="derivation", activate=True)
+
+    assert manager.prov_document(imported_id) == derivation_only
+    manager.close()
+
+
+def test_qualified_import_allows_unspecified_generation_activity(tmp_path: Path):
+    manager = _new_manager(tmp_path)
+    example = Namespace("example", "urn:partial:")
+    document = ProvDocument()
+    document.add_namespace(example)
+    document.entity(example["source"])
+    document.entity(example["result"])
+    document.activity(example["activity"])
+    document.wasGeneratedBy(example["result"], identifier=example["generation"])
+    document.used(example["activity"], example["source"], identifier=example["usage"])
+    document.wasDerivedFrom(
+        example["result"],
+        example["source"],
+        example["activity"],
+        example["generation"],
+        example["usage"],
+    )
+
+    document_id = manager.add_prov_document(document, name="partial-qualification", activate=True)
+
+    assert manager.prov_document(document_id) == document
     manager.close()

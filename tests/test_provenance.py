@@ -48,21 +48,26 @@ def _one_record(document: ProvDocument, reference):
     return records[0]
 
 
-def test_agent_plan_run_and_variable_persist_as_standard_prov(tmp_path: Path):
+def test_agent_plan_simulation_activity_and_variable_persist_as_standard_prov(tmp_path: Path):
     manager = _new_manager(tmp_path)
     dataset_uuid = uuid.UUID(_add_text_dataset(manager, tmp_path))
 
     agent = manager.add_agent("software", "XGC", version="1.2.3")
     plan = manager.add_plan("run configuration", location="runs/run-001/input.json")
-    run = manager.add_run("run-001", agent=agent, plan=plan)
     pressure = manager.add_variable(
-        run=run,
         dataset="output",
         variable="P",
         definition="pressure",
         units="Pa",
         coordinate_system="boozer",
     )
+    simulation = manager.add_activity(
+        "simulation",
+        name="run-001",
+        outputs={"pressure": pressure},
+        agent=agent,
+        plan=plan,
+    ).activity
     campaign_id = manager.campaign_uuid()
     document_before_close = _active_document(manager)
     manager.close()
@@ -81,18 +86,18 @@ def test_agent_plan_run_and_variable_persist_as_standard_prov(tmp_path: Path):
     assert _one_record(document, agent).get_attribute(HPC["version"]) == {"1.2.3"}
     assert isinstance(_one_record(document, plan), ProvEntity)
     assert PROV["Plan"] in _one_record(document, plan).get_asserted_types()
-    assert isinstance(_one_record(document, run), ProvActivity)
-    assert HPC["SimulationRun"] in _one_record(document, run).get_asserted_types()
+    assert isinstance(_one_record(document, simulation), ProvActivity)
+    assert HPC["Simulation"] in _one_record(document, simulation).get_asserted_types()
     assert HPC["Dataset"] in _one_record(document, dataset).get_asserted_types()
     assert HPC["LogicalVariable"] in _one_record(document, pressure).get_asserted_types()
 
-    associations = [record for record in document.get_records(ProvAssociation) if record.args[0] == run]
+    associations = [record for record in document.get_records(ProvAssociation) if record.args[0] == simulation]
     assert len(associations) == 1
     assert associations[0].args[1:] == (agent, plan)
 
     generations = [record for record in document.get_records(ProvGeneration) if record.args[0] == pressure]
     assert len(generations) == 1
-    assert generations[0].args[1] == run
+    assert generations[0].args[1] == simulation
     assert generations[0].get_attribute(PROV["role"]) == {HPC["pressure"]}
     reopened.close()
 
@@ -129,15 +134,13 @@ def test_dataset_entity_is_idempotent_and_collects_live_replica_locations(tmp_pa
     )
     manager.con.commit()
 
-    run = manager.add_run("run-001")
-    manager.add_variable(run=run, dataset="output", variable="P", definition="pressure")
-    manager.add_variable(
-        run=run,
+    pressure = manager.add_variable(dataset="output", variable="P", definition="pressure")
+    temperature = manager.add_variable(
         dataset="output",
         variable="T",
         definition="temperature",
-        generated_by_run=False,
     )
+    manager.add_activity("simulation", outputs={"pressure": pressure, "temperature": temperature})
 
     document = _active_document(manager)
     dataset_reference = CampaignProvIds(manager.campaign_uuid()).dataset(dataset_uuid)
@@ -154,10 +157,7 @@ def test_dataset_entity_is_idempotent_and_collects_live_replica_locations(tmp_pa
 def test_stable_logical_variables_have_no_revisions_and_optional_generation(tmp_path: Path):
     manager = _new_manager(tmp_path)
     _add_text_dataset(manager, tmp_path)
-    run = manager.add_run("run-001")
-
     pressure = manager.add_variable(
-        run=run,
         dataset="output",
         variable="P",
         definition="pressure",
@@ -165,12 +165,11 @@ def test_stable_logical_variables_have_no_revisions_and_optional_generation(tmp_
         coordinate_system=" boozer ",
     )
     pressure_alias = manager.add_variable(
-        run=run,
         dataset="output",
         variable="pressure_alias",
         definition="pressure",
-        generated_by_run=False,
     )
+    manager.add_activity("simulation", outputs={"pressure": pressure})
     document = _active_document(manager)
     pressure_record = _one_record(document, pressure)
 
@@ -185,13 +184,15 @@ def test_stable_logical_variables_have_no_revisions_and_optional_generation(tmp_
     manager.close()
 
 
-def test_run_names_are_unique_and_failed_mutation_preserves_exact_json(tmp_path: Path):
+def test_entity_has_at_most_one_producer_and_failed_mutation_preserves_exact_json(tmp_path: Path):
     manager = _new_manager(tmp_path)
-    manager.add_run("run-001")
+    _add_text_dataset(manager, tmp_path)
+    pressure = manager.add_variable(dataset="output", variable="P", definition="pressure")
+    manager.add_activity("simulation", name="run-001", outputs={"pressure": pressure})
     before = _stored_text(manager)
 
-    with pytest.raises(ValueError, match="run name already exists"):
-        manager.add_run("run-001")
+    with pytest.raises(ValueError, match="already has a producing Activity"):
+        manager.add_activity("simulation", name="run-001", outputs={"pressure": pressure})
 
     assert _stored_text(manager) == before
     manager.close()
@@ -199,11 +200,11 @@ def test_run_names_are_unique_and_failed_mutation_preserves_exact_json(tmp_path:
 
 def test_invalid_dataset_cases_leave_canonical_document_unchanged(tmp_path: Path):
     manager = _new_manager(tmp_path)
-    run = manager.add_run("run-001")
+    manager.add_agent("software", "example")
     before = _stored_text(manager)
 
     with pytest.raises(LookupError, match="dataset not found or deleted"):
-        manager.add_variable(run=run, dataset="missing", variable="P", definition="pressure")
+        manager.add_variable(dataset="missing", variable="P", definition="pressure")
     assert _stored_text(manager) == before
 
     manager.con.execute(
@@ -215,21 +216,21 @@ def test_invalid_dataset_cases_leave_canonical_document_unchanged(tmp_path: Path
     )
     manager.con.commit()
     with pytest.raises(ValueError, match="no live replica location"):
-        manager.add_variable(run=run, dataset="locationless", variable="P", definition="pressure")
+        manager.add_variable(dataset="locationless", variable="P", definition="pressure")
     assert _stored_text(manager) == before
 
     _add_text_dataset(manager, tmp_path, "deleted")
     manager.con.execute("UPDATE dataset SET deltime = 1 WHERE name = 'deleted'")
     manager.con.commit()
     with pytest.raises(LookupError, match="dataset not found or deleted"):
-        manager.add_variable(run=run, dataset="deleted", variable="P", definition="pressure")
+        manager.add_variable(dataset="deleted", variable="P", definition="pressure")
     assert _stored_text(manager) == before
 
     _add_text_dataset(manager, tmp_path, "invalid-uuid")
     manager.con.execute("UPDATE dataset SET uuid = 'not-a-uuid' WHERE name = 'invalid-uuid'")
     manager.con.commit()
     with pytest.raises(ValueError, match="dataset has an invalid UUID"):
-        manager.add_variable(run=run, dataset="invalid-uuid", variable="P", definition="pressure")
+        manager.add_variable(dataset="invalid-uuid", variable="P", definition="pressure")
     assert _stored_text(manager) == before
     manager.close()
 
@@ -237,7 +238,6 @@ def test_invalid_dataset_cases_leave_canonical_document_unchanged(tmp_path: Path
 def test_conflicting_existing_dataset_entity_is_rejected_without_rewrite(tmp_path: Path):
     manager = _new_manager(tmp_path)
     dataset_uuid = uuid.UUID(_add_text_dataset(manager, tmp_path))
-    run = manager.add_run("run-001")
     store = ProvStore(manager.con)
     info = store.ensure_authored_document()
     document = store.document(info.document_id)
@@ -260,7 +260,7 @@ def test_conflicting_existing_dataset_entity_is_rejected_without_rewrite(tmp_pat
     before = _stored_text(manager)
 
     with pytest.raises(ValueError, match="conflicting dataset name"):
-        manager.add_variable(run=run, dataset="output", variable="P", definition="pressure")
+        manager.add_variable(dataset="output", variable="P", definition="pressure")
 
     assert _stored_text(manager) == before
     manager.close()
@@ -272,13 +272,14 @@ def test_cross_campaign_agent_and_plan_references_are_rejected(tmp_path: Path):
     foreign_agent = second.add_agent("software", "foreign")
     foreign_plan = second.add_plan("foreign plan")
 
-    first.add_run("baseline")
+    _add_text_dataset(first, tmp_path, "first-output")
+    baseline = first.add_variable(dataset="first-output", variable="P", definition="pressure")
     before = _stored_text(first)
     with pytest.raises(ValueError, match="belongs to another campaign"):
-        first.add_run("bad-agent", agent=foreign_agent)
+        first.add_activity("simulation", outputs={"pressure": baseline}, agent=foreign_agent)
     assert _stored_text(first) == before
     with pytest.raises(ValueError, match="belongs to another campaign"):
-        first.add_run("bad-plan", plan=foreign_plan)
+        first.add_activity("simulation", outputs={"pressure": baseline}, plan=foreign_plan)
     assert _stored_text(first) == before
 
     first.close()

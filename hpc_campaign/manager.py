@@ -49,7 +49,7 @@ from .manager_funcs import (
     update,
 )
 from .prov_store import ProvDocumentInfo, ProvStore
-from .provenance import ActivityResult, CampaignProvenance, VariableSpec
+from .provenance import ActivityResult, CampaignProvenance
 from .schema import SchemaInterpretationError, interpret_campaign_schema_layout
 from .upgrade import upgrade_aca
 from .utils import (
@@ -949,66 +949,72 @@ class Manager:  # pylint: disable=too-many-public-methods
             plan_id=plan_id,
         )
 
-    def add_run(
-        self,
-        name: str,
-        *,
-        run_id: UUID | None = None,
-        plan: QualifiedName | None = None,
-        agent: QualifiedName | None = None,
-    ) -> QualifiedName:
-        """Add one simulation execution and its optional Agent/Plan association."""
+    def add_dataset_entity(self, name: str) -> QualifiedName:
+        """Register a typed dataset Entity; unchanged registration performs no write."""
 
         if not self.connected:
             self.open(create=True, truncate=False)
-        return CampaignProvenance(self.con).add_run(
-            name,
-            run_id=run_id,
-            plan=plan,
-            agent=agent,
-        )
+        return CampaignProvenance(self.con).add_dataset_entity(name)
+
+    def dataset_entity(self, name: str) -> QualifiedName:
+        """Look up an active dataset Entity; raise if it has not been registered."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return CampaignProvenance(self.con).dataset_entity(name)
+
+    def add_visualization_sequence_entity(self, name: str) -> QualifiedName:
+        """Register the current sequence snapshot; unchanged membership performs no write."""
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        return CampaignProvenance(self.con).add_visualization_sequence_entity(name)
+
+    def visualization_sequence_entity(self, name: str) -> QualifiedName:
+        """Look up the current registered snapshot; raise if none matches membership."""
+
+        if not self.connected:
+            self.open(create=False, truncate=False)
+        return CampaignProvenance(self.con).visualization_sequence_entity(name)
 
     def add_variable(
         self,
         *,
-        run: QualifiedName,
         dataset: str,
         variable: str,
         definition: str,
         variable_id: UUID | None = None,
         units: str | None = None,
         coordinate_system: str | None = None,
-        generated_by_run: bool = True,
     ) -> QualifiedName:
-        """Add one stable logical variable backed by an existing ACA dataset."""
+        """Create one stable logical variable backed by an existing ACA dataset."""
 
         if not self.connected:
             self.open(create=True, truncate=False)
         return CampaignProvenance(self.con).add_variable(
-            run=run,
             dataset=dataset,
             variable=variable,
             definition=definition,
             variable_id=variable_id,
             units=units,
             coordinate_system=coordinate_system,
-            generated_by_run=generated_by_run,
         )
 
     def add_activity(
         self,
         action: str,
         *,
-        inputs: Mapping[str, QualifiedName],
-        outputs: Mapping[str, VariableSpec],
+        inputs: Mapping[str, QualifiedName] | None = None,
+        outputs: Mapping[str, QualifiedName],
+        name: str | None = None,
         derivations: Mapping[str, Sequence[str]] | None = None,
         context: Mapping[str, QualifiedName] | None = None,
-        action_spec: Mapping[str, object] | None = None,
+        metadata: Mapping[str, object] | None = None,
         agent: QualifiedName | None = None,
         plan: QualifiedName | None = None,
         activity_id: UUID | None = None,
     ) -> ActivityResult:
-        """Add a campaign processing Activity with explicit scientific lineage."""
+        """Add an Activity with causal product inputs and existing product outputs."""
 
         if not self.connected:
             self.open(create=True, truncate=False)
@@ -1016,9 +1022,10 @@ class Manager:  # pylint: disable=too-many-public-methods
             action,
             inputs=inputs,
             outputs=outputs,
+            name=name,
             derivations=derivations,
             context=context,
-            action_spec=action_spec,
+            metadata=metadata,
             agent=agent,
             plan=plan,
             activity_id=activity_id,

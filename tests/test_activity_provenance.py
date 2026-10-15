@@ -9,13 +9,13 @@ from prov.model import (
     ProvAssociation,
     ProvDerivation,
     ProvDocument,
-    ProvEntity,
     ProvGeneration,
     ProvUsage,
 )
 
-from hpc_campaign import ActivityResult, Manager, VariableSpec
+from hpc_campaign import ActivityResult, Manager
 from hpc_campaign.prov_mapping import HPC, CampaignProvIds
+from hpc_campaign.prov_validation import ProvenanceValidationError
 
 
 def _new_manager(tmp_path: Path, name: str = "campaign.aca") -> Manager:
@@ -52,20 +52,18 @@ def _campaign_with_pressure(tmp_path: Path, name: str = "campaign.aca"):
     manager = _new_manager(tmp_path, name)
     _add_text_dataset(manager, tmp_path, f"{name}-raw")
     _add_text_dataset(manager, tmp_path, f"{name}-products")
-    run = manager.add_run("run-001")
     pressure = manager.add_variable(
-        run=run,
         dataset=f"{name}-raw",
         variable="P",
         definition="pressure",
         units="Pa",
     )
-    return manager, run, pressure
+    simulation = manager.add_activity("simulation", outputs={"pressure": pressure})
+    return manager, simulation, pressure
 
 
-def _output_spec(run, dataset: str, variable: str, definition: str = "pressure", **kwargs):
-    return VariableSpec(
-        run=run,
+def _add_variable(manager, dataset: str, variable: str, definition: str = "pressure", **kwargs):
+    return manager.add_variable(
         dataset=dataset,
         variable=variable,
         definition=definition,
@@ -74,7 +72,7 @@ def _output_spec(run, dataset: str, variable: str, definition: str = "pressure",
 
 
 def test_reduction_records_exact_prov_relations_and_persists(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     agent = manager.add_agent("software", "MGARD", version="5")
     plan = manager.add_plan("reduction workflow", location="scripts/reduce.py")
 
@@ -82,14 +80,14 @@ def test_reduction_records_exact_prov_relations_and_persists(tmp_path: Path):
         "reduction",
         inputs={"source": pressure},
         outputs={
-            "result": _output_spec(
-                run,
+            "result": _add_variable(
+                manager,
                 "campaign.aca-products",
                 "P_reduced",
                 units="Pa",
             )
         },
-        action_spec={"method": "mgard", "error_bound": 0.001},
+        metadata={"method": "mgard", "error_bound": 0.001},
         agent=agent,
         plan=plan,
     )
@@ -108,9 +106,8 @@ def test_reduction_records_exact_prov_relations_and_persists(tmp_path: Path):
 
     usages = [record for record in document_before_close.get_records(ProvUsage) if record.args[0] == result.activity]
     source_usage = next(record for record in usages if record.args[1] == pressure)
-    spec_usage = next(record for record in usages if record.args[1] == result.action_specification)
     assert source_usage.get_attribute(PROV["role"]) == {HPC["source"]}
-    assert spec_usage.get_attribute(PROV["role"]) == {HPC["action_specification"]}
+    assert activity.get_attribute(HPC["metadata"]) == {'{"error_bound":0.001,"method":"mgard"}'}
 
     generations = [record for record in document_before_close.get_records(ProvGeneration) if record.args[0] == output]
     assert len(generations) == 1
@@ -135,16 +132,6 @@ def test_reduction_records_exact_prov_relations_and_persists(tmp_path: Path):
     assert len(associations) == 1
     assert associations[0].args[1:] == (agent, plan)
 
-    specification = _one_record(document_before_close, result.action_specification)
-    expected_json = json.dumps(
-        {"method": "mgard", "error_bound": 0.001},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    assert PROV["Plan"] in specification.get_asserted_types()
-    assert HPC["ActionSpecification"] in specification.get_asserted_types()
-    assert specification.get_attribute(PROV["value"]) == {expected_json}
-
     manager.close()
     reopened = Manager(archive="campaign.aca", campaign_store=str(tmp_path))
     reopened.open()
@@ -154,9 +141,8 @@ def test_reduction_records_exact_prov_relations_and_persists(tmp_path: Path):
 
 
 def test_explicit_derivations_select_parents_for_each_output(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     temperature = manager.add_variable(
-        run=run,
         dataset="campaign.aca-raw",
         variable="T",
         definition="temperature",
@@ -167,8 +153,8 @@ def test_explicit_derivations_select_parents_for_each_output(tmp_path: Path):
         "quantity_of_interest",
         inputs={"pressure": pressure, "temperature": temperature},
         outputs={
-            "field": _output_spec(run, "campaign.aca-products", "flux", "flux"),
-            "total": _output_spec(run, "campaign.aca-products", "total_flux", "total_flux"),
+            "field": _add_variable(manager, "campaign.aca-products", "flux", "flux"),
+            "total": _add_variable(manager, "campaign.aca-products", "total_flux", "total_flux"),
         },
         derivations={"field": ["pressure", "temperature"], "total": ["pressure"]},
     )
@@ -187,9 +173,8 @@ def test_derivation_roles_may_contain_underscores(tmp_path: Path):
     # Qualified Derivation identifiers include both the output and input role.
     # Underscores are valid within either token, so validation must use the
     # referenced Generation and Usage instead of splitting on underscores.
-    manager, run, magnetic_x = _campaign_with_pressure(tmp_path)
+    manager, _simulation, magnetic_x = _campaign_with_pressure(tmp_path)
     magnetic_y = manager.add_variable(
-        run=run,
         dataset="campaign.aca-raw",
         variable="By",
         definition="magnetic_y",
@@ -199,8 +184,8 @@ def test_derivation_roles_may_contain_underscores(tmp_path: Path):
         "quantity_of_interest",
         inputs={"magnetic_x": magnetic_x, "magnetic_y": magnetic_y},
         outputs={
-            "divergence_result": _output_spec(
-                run,
+            "divergence_result": _add_variable(
+                manager,
                 "campaign.aca-products",
                 "div_b",
                 "magnetic_divergence",
@@ -222,9 +207,8 @@ def test_derivation_roles_may_contain_underscores(tmp_path: Path):
 
 
 def test_default_derivations_are_all_inputs_to_all_outputs(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     temperature = manager.add_variable(
-        run=run,
         dataset="campaign.aca-raw",
         variable="T",
         definition="temperature",
@@ -234,8 +218,8 @@ def test_default_derivations_are_all_inputs_to_all_outputs(tmp_path: Path):
         "projection",
         inputs={"pressure": pressure, "temperature": temperature},
         outputs={
-            "first": _output_spec(run, "campaign.aca-products", "projection_1", "projection"),
-            "second": _output_spec(run, "campaign.aca-products", "projection_2", "projection"),
+            "first": _add_variable(manager, "campaign.aca-products", "projection_1", "projection"),
+            "second": _add_variable(manager, "campaign.aca-products", "projection_2", "projection"),
         },
     )
     derivations = list(_active_document(manager).get_records(ProvDerivation))
@@ -248,7 +232,7 @@ def test_default_derivations_are_all_inputs_to_all_outputs(tmp_path: Path):
 
 
 def test_context_is_used_but_is_not_a_lineage_parent(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     data_model = manager.add_plan("Fides data model", location="vis/fides.json")
 
     result = manager.add_activity(
@@ -256,8 +240,8 @@ def test_context_is_used_but_is_not_a_lineage_parent(tmp_path: Path):
         inputs={"color": pressure},
         context={"data_model": data_model},
         outputs={
-            "image": _output_spec(
-                run,
+            "image": _add_variable(
+                manager,
                 "campaign.aca-products",
                 "pressure_image",
                 "pressure_visualization",
@@ -273,36 +257,105 @@ def test_context_is_used_but_is_not_a_lineage_parent(tmp_path: Path):
     manager.close()
 
 
-def test_identical_action_specs_are_deduplicated_by_content(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+def test_activity_metadata_is_stored_on_each_activity(tmp_path: Path):
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     specification = {"method": "mgard", "parameters": {"tolerance": 1e-4}}
 
     first = manager.add_activity(
         "reduction",
         inputs={"source": pressure},
-        outputs={"result": _output_spec(run, "campaign.aca-products", "reduced_1")},
-        action_spec=specification,
+        outputs={"result": _add_variable(manager, "campaign.aca-products", "reduced_1")},
+        metadata=specification,
     )
     second = manager.add_activity(
         "reduction",
         inputs={"source": pressure},
-        outputs={"result": _output_spec(run, "campaign.aca-products", "reduced_2")},
-        action_spec={"parameters": {"tolerance": 1e-4}, "method": "mgard"},
+        outputs={"result": _add_variable(manager, "campaign.aca-products", "reduced_2")},
+        metadata={"parameters": {"tolerance": 1e-4}, "method": "mgard"},
     )
     document = _active_document(manager)
 
-    assert first.action_specification == second.action_specification
-    assert len(document.get_record(first.action_specification)) == 1
-    assert (
-        len(
-            [
-                record
-                for record in document.get_records(ProvEntity)
-                if HPC["ActionSpecification"] in record.get_asserted_types()
-            ]
-        )
-        == 1
+    assert first.activity != second.activity
+    assert _one_record(document, first.activity).get_attribute(HPC["metadata"]) == {
+        '{"method":"mgard","parameters":{"tolerance":0.0001}}'
+    }
+    assert _one_record(document, second.activity).get_attribute(HPC["metadata"]) == {
+        '{"method":"mgard","parameters":{"tolerance":0.0001}}'
+    }
+    manager.close()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {1: "top-level integer key"},
+        {"parameters": {1: "nested integer key"}},
+        {"parameters": {None: "nested null key"}},
+        {"stages": [{"parameters": {False: "boolean key inside a list"}}]},
+        {"stages": [[{"parameters": {0.5: "numeric key inside nested lists"}}]]},
+        {"stages": ({"parameters": {(1, 2): "tuple key inside a tuple"}},)},
+    ],
+)
+def test_nonstring_metadata_keys_are_rejected_at_every_depth_atomically(tmp_path: Path, metadata):
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
+    output = _add_variable(manager, "campaign.aca-products", "reduced")
+    before = tuple(
+        manager.con.execute(
+            "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'campaign-provenance'"
+        ).fetchone()
     )
+
+    with pytest.raises(ValueError, match="metadata keys must be strings"):
+        manager.add_activity("reduction", inputs={"source": pressure}, outputs={"result": output}, metadata=metadata)
+
+    assert (
+        tuple(
+            manager.con.execute(
+                "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'campaign-provenance'"
+            ).fetchone()
+        )
+        == before
+    )
+    manager.close()
+
+
+def test_nested_metadata_preserves_string_keys_and_shared_containers(tmp_path: Path):
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
+    output = _add_variable(manager, "campaign.aca-products", "reduced")
+    parameters = {"1": "a string key", "tolerance": 0.001}
+    result = manager.add_activity(
+        "reduction",
+        inputs={"source": pressure},
+        outputs={"result": output},
+        metadata={"stages": [parameters, {"nested": (parameters,)}]},
+    )
+
+    activity = _one_record(_active_document(manager), result.activity)
+    stored = next(iter(activity.get_attribute(HPC["metadata"])))
+    assert json.loads(stored) == {"stages": [parameters, {"nested": [parameters]}]}
+    manager.close()
+
+
+@pytest.mark.parametrize("container_type", [dict, list])
+def test_circular_metadata_still_raises_a_value_error(tmp_path: Path, container_type):
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
+    output = _add_variable(manager, "campaign.aca-products", "reduced")
+    circular = container_type()
+    if isinstance(circular, dict):
+        circular["self"] = circular
+    else:
+        circular.append(circular)
+    before = _stored_text(manager)
+
+    with pytest.raises(ValueError, match="only JSON-compatible values"):
+        manager.add_activity(
+            "reduction",
+            inputs={"source": pressure},
+            outputs={"result": output},
+            metadata={"parameters": circular},
+        )
+
+    assert _stored_text(manager) == before
     manager.close()
 
 
@@ -316,13 +369,13 @@ def test_identical_action_specs_are_deduplicated_by_content(tmp_path: Path):
     ],
 )
 def test_supported_activity_actions(action, activity_type, tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path, f"{action}.aca")
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path, f"{action}.aca")
     result = manager.add_activity(
         action,
         inputs={"source": pressure},
         outputs={
-            "result": _output_spec(
-                run,
+            "result": _add_variable(
+                manager,
                 f"{action}.aca-products",
                 f"{action}_result",
                 "result",
@@ -335,8 +388,8 @@ def test_supported_activity_actions(action, activity_type, tmp_path: Path):
 
 
 def test_invalid_activity_requests_do_not_change_canonical_prov(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
-    base_output = _output_spec(run, "campaign.aca-products", "reduced")
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
+    base_output = _add_variable(manager, "campaign.aca-products", "reduced")
     before = _stored_text(manager)
 
     invalid_calls = [
@@ -360,12 +413,12 @@ def test_invalid_activity_requests_do_not_change_canonical_prov(tmp_path: Path):
             "reduction",
             inputs={"source": pressure},
             outputs={"result": base_output},
-            action_spec={"invalid": {1, 2}},
+            metadata={"invalid": {1, 2}},
         ),
         lambda: manager.add_activity(
             "reduction",
             inputs={"source": pressure},
-            outputs={"result": _output_spec(run, "missing", "reduced")},
+            outputs={"result": CampaignProvIds(manager.campaign_uuid()).variable(uuid.uuid4())},
         ),
     ]
     for invalid_call in invalid_calls:
@@ -377,44 +430,37 @@ def test_invalid_activity_requests_do_not_change_canonical_prov(tmp_path: Path):
     manager.close()
 
 
-def test_cross_campaign_and_duplicate_output_ids_are_atomic(tmp_path: Path):
-    first, run, pressure = _campaign_with_pressure(tmp_path, "first.aca")
+def test_cross_campaign_outputs_and_multiple_producers_are_atomic(tmp_path: Path):
+    first, _simulation, pressure = _campaign_with_pressure(tmp_path, "first.aca")
     second, _, foreign_pressure = _campaign_with_pressure(tmp_path, "second.aca")
     output_id = uuid.uuid4()
+    first_output = _add_variable(
+        first,
+        "first.aca-products",
+        "reduced",
+        variable_id=output_id,
+    )
     first.add_activity(
         "reduction",
         inputs={"source": pressure},
-        outputs={
-            "result": _output_spec(
-                run,
-                "first.aca-products",
-                "reduced",
-                variable_id=output_id,
-            )
-        },
+        outputs={"result": first_output},
     )
     before = _stored_text(first)
 
+    foreign_output = _add_variable(second, "second.aca-products", "foreign")
     with pytest.raises(ValueError, match="another campaign"):
         first.add_activity(
             "reduction",
             inputs={"source": foreign_pressure},
-            outputs={"result": _output_spec(run, "first.aca-products", "foreign")},
+            outputs={"result": foreign_output},
         )
     assert _stored_text(first) == before
 
-    with pytest.raises(ValueError, match="identifier already exists"):
+    with pytest.raises(ValueError, match="already has a producing Activity"):
         first.add_activity(
             "reduction",
             inputs={"source": pressure},
-            outputs={
-                "result": _output_spec(
-                    run,
-                    "first.aca-products",
-                    "duplicate",
-                    variable_id=output_id,
-                )
-            },
+            outputs={"result": first_output},
         )
     assert _stored_text(first) == before
     first.close()
@@ -422,13 +468,13 @@ def test_cross_campaign_and_duplicate_output_ids_are_atomic(tmp_path: Path):
 
 
 def test_qualified_relation_identifiers_use_the_activity_uuid(tmp_path: Path):
-    manager, run, pressure = _campaign_with_pressure(tmp_path)
+    manager, _simulation, pressure = _campaign_with_pressure(tmp_path)
     activity_id = uuid.uuid4()
     result = manager.add_activity(
         "reduction",
         activity_id=activity_id,
         inputs={"source": pressure},
-        outputs={"result": _output_spec(run, "campaign.aca-products", "reduced")},
+        outputs={"result": _add_variable(manager, "campaign.aca-products", "reduced")},
     )
     document = _active_document(manager)
     identifiers = CampaignProvIds(manager.campaign_uuid())
@@ -449,3 +495,144 @@ def test_qualified_relation_identifiers_use_the_activity_uuid(tmp_path: Path):
         pressure,
     )
     manager.close()
+
+
+def test_authoring_rejects_a_multi_activity_cycle_atomically(tmp_path: Path):
+    manager = _new_manager(tmp_path)
+    _add_text_dataset(manager, tmp_path, "fields")
+    first = manager.add_variable(dataset="fields", variable="A", definition="a")
+    second = manager.add_variable(dataset="fields", variable="B", definition="b")
+    manager.add_activity("projection", inputs={"source": first}, outputs={"result": second})
+    before = tuple(
+        manager.con.execute(
+            "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'campaign-provenance'"
+        ).fetchone()
+    )
+
+    with pytest.raises(ProvenanceValidationError, match="derivation cycle"):
+        manager.add_activity("projection", inputs={"source": second}, outputs={"result": first})
+
+    assert (
+        tuple(
+            manager.con.execute(
+                "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'campaign-provenance'"
+            ).fetchone()
+        )
+        == before
+    )
+    manager.close()
+
+
+def test_context_usage_is_not_treated_as_a_causal_edge(tmp_path: Path):
+    manager = _new_manager(tmp_path)
+    _add_text_dataset(manager, tmp_path, "fields")
+    first = manager.add_variable(dataset="fields", variable="A", definition="a")
+    second = manager.add_variable(dataset="fields", variable="B", definition="b")
+    manager.add_activity("projection", inputs={"source": first}, outputs={"result": second})
+    manager.add_activity("simulation", context={"reference": second}, outputs={"result": first})
+
+    assert {(record.args[0], record.args[1]) for record in _active_document(manager).get_records(ProvDerivation)} == {
+        (second, first)
+    }
+    manager.close()
+
+
+@pytest.mark.parametrize("import_kind", ["active", "inactive", "bundled", "duplicate"])
+def test_activity_resolves_products_context_and_associations_from_active_imports(tmp_path: Path, import_kind):
+    manager = _new_manager(tmp_path)
+    _add_text_dataset(manager, tmp_path, "fields")
+    dataset = manager.add_dataset_entity("fields")
+    identifiers = CampaignProvIds(manager.campaign_uuid())
+    imported = ProvDocument()
+    imported.add_namespace(HPC)
+    imported.add_namespace(identifiers.namespace)
+    target = imported
+    if import_kind == "bundled":
+        imported.add_namespace("external", "urn:imported:")
+        target = imported.bundle("external:records")
+
+    products = {}
+    for name in ("source", "output"):
+        variable_id = uuid.uuid4()
+        reference = identifiers.variable(variable_id)
+        target.entity(
+            reference,
+            [
+                (PROV["type"], HPC["LogicalVariable"]),
+                (HPC["logicalVariableId"], str(variable_id)),
+                (HPC["dataset"], dataset),
+                (HPC["datasetName"], "fields"),
+                (HPC["variable"], name),
+                (HPC["variableDefinition"], name),
+                (PROV["location"], "fields.txt"),
+            ],
+        )
+        products[name] = reference
+    agent = identifiers.agent(uuid.uuid4())
+    plan = identifiers.plan(uuid.uuid4())
+    target.agent(agent, [(PROV["type"], PROV["SoftwareAgent"])])
+    target.entity(plan, [(PROV["type"], PROV["Plan"])])
+    simulation_id = uuid.uuid4()
+    simulation = identifiers.activity(simulation_id)
+    target.activity(simulation, other_attributes=[(PROV["type"], HPC["Simulation"])])
+    target.wasGeneratedBy(
+        products["source"],
+        simulation,
+        identifier=identifiers.generation(simulation_id, "source"),
+        other_attributes=[(PROV["role"], HPC["source"])],
+    )
+    manager.add_prov_document(imported, name="imported", activate=import_kind != "inactive")
+    if import_kind == "duplicate":
+        manager.add_prov_document(imported, name="duplicate", activate=True)
+    imported_before = tuple(
+        manager.con.execute(
+            "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'imported'"
+        ).fetchone()
+    )
+    authored_before = _stored_text(manager)
+
+    if import_kind == "inactive":
+        with pytest.raises(LookupError, match="does not resolve"):
+            manager.add_activity(
+                "reduction", inputs={"source": products["source"]}, outputs={"result": products["output"]}
+            )
+        assert _stored_text(manager) == authored_before
+        manager.close()
+        return
+
+    result = manager.add_activity(
+        "reduction",
+        inputs={"source": products["source"]},
+        outputs={"result": products["output"]},
+        context={"recipe": plan},
+        agent=agent,
+        plan=plan,
+    )
+    authored = manager.prov_document("campaign-provenance")
+    assert next(authored.get_records(ProvDerivation)).args[:3] == (
+        products["output"],
+        products["source"],
+        result.activity,
+    )
+    # Imported declarations stay in their original document, including bundles.
+    assert not any(authored.get_record(reference) for reference in (*products.values(), agent, plan, simulation))
+    assert (
+        tuple(
+            manager.con.execute(
+                "SELECT content, sha256, active, modtime FROM provenance_document WHERE name = 'imported'"
+            ).fetchone()
+        )
+        == imported_before
+    )
+    before = _stored_text(manager)
+    with pytest.raises(ValueError, match="already has a producing Activity"):
+        manager.add_activity("simulation", outputs={"result": products["source"]})
+    with pytest.raises(ValueError, match="identifier already exists"):
+        manager.add_activity("simulation", outputs={"result": products["source"]}, activity_id=simulation_id)
+    assert _stored_text(manager) == before
+    manager.close()
+
+    reopened = Manager(archive="campaign.aca", campaign_store=str(tmp_path))
+    reopened.open()
+    assert reopened.prov_document("campaign-provenance") == authored
+    reopened.close()

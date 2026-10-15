@@ -22,6 +22,77 @@ python examples/provenance_hello_world.py /tmp/provenance-hello-world
 The command creates a campaign archive and exports its W3C PROV graph as
 `/tmp/provenance-hello-world/provenance-hello-world.json`.
 
+It then reads the stored provenance and prints:
+
+```text
+Image ancestry:
+pressure-image
+  produced by visualization
+    derived from reduced.pressure
+      produced by reduction
+        derived from simulation.pressure
+          produced by simulation
+```
+
+Variable labels use `dataset.variable`; producer labels identify Activities.
+The payloads are demonstration placeholders. The example records their
+relationships without executing a simulation or reduction.
+
+The example registers each logical variable with `add_variable()` and records
+its producer with `add_activity()`. A simulation is a root Activity with no
+inputs. Activity input roles name causal data products, and each Entity
+can have at most one producing Activity. Each Activity should represent one
+coherent transformation; by default, each output derives from every causal
+input, with `derivations=` available when outputs have different parents.
+Causal derivations must be acyclic. Activity endpoints can refer to Entities
+declared in any active provenance document, including imported documents;
+inactive imports are excluded.
+
+Images and videos use their registered dataset Entities directly:
+`manager.add_dataset_entity(name)` registers an Entity typed `hpc:Image` or
+`hpc:Video`, in addition to `hpc:Dataset`. These Entities can be Activity
+inputs or outputs without a logical-variable wrapper. The example writes and
+registers a small valid PNG as its visualization output.
+
+`manager.add_visualization_sequence_entity(name)` registers an ordered collection
+snapshot of a registered image or video sequence. It records standard PROV
+membership and preserves order in `hpc:memberOrder`. Repeating registration with
+unchanged membership reuses the stored Entity; changed membership creates a
+new snapshot. Collection membership alone does not assert a producer or a
+causal dependency for each member.
+
+These snapshots preserve membership, not copies of mutable payload files.
+For a rerender, register media under new dataset names and update the sequence
+to those products. This preserves earlier media and gives the new products
+their own producing Activity.
+
+`manager.dataset_entity(name)` and
+`manager.visualization_sequence_entity(name)` are read-only lookups across
+active provenance documents. They raise `LookupError` if the Entity or the
+snapshot for the current membership has not been registered. They never create
+or refresh records. The corresponding `add_*` calls also perform no write when
+registration is unchanged. Use `add_dataset_entity()` to refresh newly added
+replica locations and `add_visualization_sequence_entity()` to register changed
+sequence membership explicitly.
+
+The first authoring operation creates the stored provenance document only
+after it validates successfully. Failed authoring leaves existing documents
+unchanged and does not leave an empty active document behind.
+
+For a branching example with a quantity of interest, software Agents, a
+simulation Plan, and visualization context, run:
+
+```bash
+python examples/provenance_workflow.py /tmp/provenance-workflow
+```
+
+Both examples keep names such as `pressure`, `reduced_pressure`, and `image`
+as Entity references and pass them directly to Activities. The
+`describe_ancestry()` helper in `examples/provenance_hello_world.py` follows
+stored Generation and Derivation records. It expands shared ancestors once,
+marks later occurrences with `(already shown)`, and excludes context such as
+the Fides data model because Usage alone does not establish causality.
+
 A Campaign Archive file can contain
 
 - metadata of ADIOS2 BP5 datasets 

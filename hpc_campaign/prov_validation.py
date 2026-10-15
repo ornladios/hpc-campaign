@@ -8,12 +8,11 @@ self-containment and the supported scientific-core invariants apply.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -25,6 +24,7 @@ from prov.model import (
     ProvDocument,
     ProvEntity,
     ProvGeneration,
+    ProvMembership,
     ProvRecord,
     ProvRelation,
     ProvUsage,
@@ -35,7 +35,7 @@ from .prov_mapping import HPC, CampaignProvIds
 
 _UUID_HEX = r"[0-9a-f]{32}"
 _ROLE = r"[A-Za-z][A-Za-z0-9_]*"
-_OBJECT_ID = re.compile(rf"^(dataset|variable|run|activity|agent|plan|entity)_({_UUID_HEX})$")
+_OBJECT_ID = re.compile(rf"^(dataset|variable|activity|agent|plan|entity)_({_UUID_HEX})$")
 _USAGE_ID = re.compile(rf"^usage_({_UUID_HEX})_({_ROLE})$")
 _GENERATION_ID = re.compile(rf"^generation_({_UUID_HEX})_({_ROLE})$")
 _DERIVATION_PREFIX = re.compile(rf"^derivation_({_UUID_HEX})_.+$")
@@ -85,6 +85,7 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
         self._validate_relationship_endpoints(all_records, declared)
         self._validate_supported_core(all_records, declared)
         self._validate_generation_uniqueness(all_records)
+        self._validate_causal_acyclicity(all_records)
 
     @staticmethod
     def _records(document: ProvDocument) -> Iterable[ProvRecord]:
@@ -184,22 +185,37 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
             if record.identifier is not None:
                 records_by_id[record.identifier].append(record)
 
-        live_dataset_ids = self._live_dataset_ids()
+        live_dataset_formats = self._live_dataset_formats()
         for record in records:
             self._validate_local_identifier(record)
             asserted_types = record.get_asserted_types()
+            if HPC["SimulationRun"] in asserted_types or HPC["ActionSpecification"] in asserted_types:
+                raise ProvenanceValidationError(
+                    f"active document uses an obsolete provenance type: {record.identifier}"
+                )
+            if isinstance(record, ProvActivity):
+                self._validate_activity_metadata(record)
             if isinstance(record, ProvEntity) and HPC["Dataset"] in asserted_types:
-                self._validate_dataset(record, live_dataset_ids)
+                self._validate_dataset(record, live_dataset_formats)
+            if isinstance(record, ProvEntity) and asserted_types.intersection({HPC["Image"], HPC["Video"]}):
+                if HPC["Dataset"] not in asserted_types:
+                    raise ProvenanceValidationError(f"Image/Video must be a Dataset Entity: {record.identifier}")
+            if isinstance(record, ProvEntity) and asserted_types.intersection(
+                {HPC["VisualizationSequence"], HPC["ImageSequence"], HPC["VideoSequence"]}
+            ):
+                self._validate_sequence(record, records, records_by_id)
             if isinstance(record, ProvEntity) and HPC["LogicalVariable"] in asserted_types:
+                if record.get_attribute(HPC["run"]):
+                    raise ProvenanceValidationError(
+                        f"LogicalVariable has an obsolete producer reference: {record.identifier}"
+                    )
                 self._validate_logical_variable(record, declared, records_by_id)
-            if isinstance(record, ProvEntity) and HPC["ActionSpecification"] in asserted_types:
-                self._validate_action_specification(record)
             if isinstance(record, ProvGeneration):
                 self._validate_generation(record)
             if isinstance(record, ProvUsage):
                 self._validate_usage(record)
             if isinstance(record, ProvDerivation):
-                self._validate_derivation(record)
+                self._validate_derivation(record, records_by_id)
 
     def _validate_local_identifier(self, record: ProvRecord) -> None:
         reference = record.identifier
@@ -212,7 +228,7 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
             kind = object_match.group(1)
             if isinstance(record, ProvEntity) and kind not in {"dataset", "variable", "plan", "entity"}:
                 raise ProvenanceValidationError(f"Entity has incompatible campaign identifier: {reference}")
-            if isinstance(record, ProvActivity) and kind not in {"run", "activity"}:
+            if isinstance(record, ProvActivity) and kind != "activity":
                 raise ProvenanceValidationError(f"Activity has incompatible campaign identifier: {reference}")
             if isinstance(record, ProvAgent) and kind != "agent":
                 raise ProvenanceValidationError(f"Agent has incompatible campaign identifier: {reference}")
@@ -227,7 +243,7 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
             return
         raise ProvenanceValidationError(f"unsupported campaign-qualified identifier: {reference}")
 
-    def _validate_dataset(self, record: ProvEntity, live_dataset_ids: set[uuid.UUID]) -> None:
+    def _validate_dataset(self, record: ProvEntity, live_dataset_formats: dict[uuid.UUID, str]) -> None:
         identifier_id = self._object_uuid(record, "dataset")
         values = self._one_attribute(record, HPC["datasetUuid"], "dataset UUID")
         try:
@@ -236,9 +252,58 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
             raise ProvenanceValidationError(f"Dataset has an invalid hpc:datasetUuid: {record.identifier}") from exc
         if identifier_id != attribute_id:
             raise ProvenanceValidationError(f"Dataset identifier and hpc:datasetUuid disagree: {record.identifier}")
-        if attribute_id not in live_dataset_ids:
+        if attribute_id not in live_dataset_formats:
             raise ProvenanceValidationError(f"Dataset does not resolve to a live ACA dataset: {record.identifier}")
+        dataset_format = live_dataset_formats[attribute_id]
+        if record.get_attribute(HPC["format"]) != {dataset_format}:
+            raise ProvenanceValidationError(f"Dataset format does not match the live ACA dataset: {record.identifier}")
+        for media_type, required_format in ((HPC["Image"], "IMAGE"), (HPC["Video"], "VIDEO")):
+            if media_type in record.get_asserted_types() and dataset_format != required_format:
+                raise ProvenanceValidationError(f"Dataset media type does not match its format: {record.identifier}")
         self._require_nonempty_values(record, PROV["location"], "Dataset location")
+
+    def _validate_sequence(
+        self,
+        record: ProvEntity,
+        records: Sequence[ProvRecord],
+        records_by_id: dict[QualifiedName, list[ProvRecord]],
+    ) -> None:
+        self._object_uuid(record, "entity")
+        types = record.get_asserted_types()
+        if not {PROV["Collection"], HPC["VisualizationSequence"]}.issubset(types):
+            raise ProvenanceValidationError(f"Sequence must be a visualization Collection: {record.identifier}")
+        sequence_types = types.intersection({HPC["ImageSequence"], HPC["VideoSequence"]})
+        if len(sequence_types) != 1:
+            raise ProvenanceValidationError(f"Sequence must have one media type: {record.identifier}")
+        name = self._one_attribute(record, HPC["sequenceName"], "sequence name")
+        if not isinstance(name, str) or not name.strip():
+            raise ProvenanceValidationError(f"Sequence name must be non-empty: {record.identifier}")
+        value = self._one_attribute(record, HPC["memberOrder"], "sequence member order")
+        try:
+            ordered_ids = json.loads(value)
+            if not isinstance(ordered_ids, list) or not ordered_ids:
+                raise ValueError("expected a non-empty ordered list")
+            member_ids = [uuid.UUID(item) for item in ordered_ids]
+            if json.dumps([str(item) for item in member_ids], separators=(",", ":")) != value:
+                raise ValueError("expected canonical UUID strings")
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ProvenanceValidationError(f"Sequence has invalid member order: {record.identifier}") from exc
+        expected_members = {self.identifiers.dataset(member_id) for member_id in member_ids}
+        actual_members = {
+            relation.args[1]
+            for relation in records
+            if isinstance(relation, ProvMembership) and relation.args[0] == record.identifier
+        }
+        if expected_members != actual_members:
+            raise ProvenanceValidationError(f"Sequence membership and order disagree: {record.identifier}")
+        required_type = HPC["Image"] if HPC["ImageSequence"] in types else HPC["Video"]
+        for member in expected_members:
+            if not any(
+                isinstance(candidate, ProvEntity)
+                and {HPC["Dataset"], required_type}.issubset(candidate.get_asserted_types())
+                for candidate in records_by_id[member]
+            ):
+                raise ProvenanceValidationError(f"Sequence member has the wrong media type: {member}")
 
     def _validate_logical_variable(  # pylint: disable=too-many-locals
         self,
@@ -257,12 +322,8 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
         if identifier_id != attribute_id:
             raise ProvenanceValidationError(f"LogicalVariable identifier and UUID disagree: {record.identifier}")
 
-        run = self._one_qname_attribute(record, HPC["run"], "LogicalVariable run")
         dataset = self._one_qname_attribute(record, HPC["dataset"], "LogicalVariable dataset")
-        for label, reference, record_type, required_type in (
-            ("run", run, ProvActivity, HPC["SimulationRun"]),
-            ("dataset", dataset, ProvEntity, HPC["Dataset"]),
-        ):
+        for label, reference, record_type, required_type in (("dataset", dataset, ProvEntity, HPC["Dataset"]),):
             if reference not in declared:
                 raise ProvenanceValidationError(f"LogicalVariable {label} reference is unresolved: {reference}")
             candidates = records_by_id[reference]
@@ -284,30 +345,30 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
                 )
         self._require_nonempty_values(record, PROV["location"], "LogicalVariable location")
 
-    def _validate_action_specification(self, record: ProvEntity) -> None:
-        if PROV["Plan"] not in record.get_asserted_types():
-            raise ProvenanceValidationError(f"ActionSpecification must also be a prov:Plan: {record.identifier}")
-        value = self._one_attribute(record, PROV["value"], "ActionSpecification value")
-        media_type = self._one_attribute(
-            record,
-            HPC["mediaType"],
-            "ActionSpecification media type",
-        )
-        digest = self._one_attribute(record, HPC["sha256"], "ActionSpecification SHA-256")
-        if not isinstance(value, str) or media_type != "application/json":
-            raise ProvenanceValidationError(f"ActionSpecification must contain canonical JSON: {record.identifier}")
+    @staticmethod
+    def _validate_activity_metadata(record: ProvActivity) -> None:
+        # Looking up an absent qualified attribute through get_attribute()
+        # registers its namespace on unfamiliar imported documents.
+        values = {value for attribute, value in record.attributes if attribute == HPC["metadata"]}
+        if not values:
+            return
+        if len(values) != 1 or not isinstance(next(iter(values)), str):
+            raise ProvenanceValidationError(f"Activity metadata must be one canonical JSON object: {record.identifier}")
+        value = next(iter(values))
         try:
             decoded = json.loads(value)
         except (json.JSONDecodeError, TypeError) as exc:
-            raise ProvenanceValidationError(f"ActionSpecification contains invalid JSON: {record.identifier}") from exc
+            raise ProvenanceValidationError(f"Activity metadata contains invalid JSON: {record.identifier}") from exc
         if not isinstance(decoded, dict):
-            raise ProvenanceValidationError(f"ActionSpecification JSON must be an object: {record.identifier}")
-        canonical = json.dumps(decoded, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        if value != canonical or digest != expected:
+            raise ProvenanceValidationError(f"Activity metadata must be a JSON object: {record.identifier}")
+        try:
+            canonical = json.dumps(decoded, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as exc:
             raise ProvenanceValidationError(
-                f"ActionSpecification canonical JSON or SHA-256 is invalid: {record.identifier}"
-            )
+                f"Activity metadata must contain JSON-compatible values: {record.identifier}"
+            ) from exc
+        if canonical != value:
+            raise ProvenanceValidationError(f"Activity metadata is not canonical JSON: {record.identifier}")
 
     def _validate_usage(self, record: ProvUsage) -> None:
         match = self._local_relation_match(record, _USAGE_ID)
@@ -325,7 +386,50 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
         self._require_role(record, role)
         self._require_activity_uuid(record.args[1], activity_id, "Generation")
 
-    def _validate_derivation(self, record: ProvDerivation) -> None:
+    @staticmethod
+    def _validate_derivation_references(
+        record: ProvDerivation,
+        records_by_id: dict[QualifiedName, list[ProvRecord]],
+    ) -> None:
+        activity, generation, usage = record.args[2:5]
+        referenced_activities = set()
+        for relation_ref, relation_type, entity_position, entity in (
+            (generation, ProvGeneration, 0, record.args[0]),
+            (usage, ProvUsage, 1, record.args[1]),
+        ):
+            if relation_ref is None:
+                continue
+            candidates = records_by_id.get(relation_ref, [])
+            if not candidates or any(not isinstance(candidate, relation_type) for candidate in candidates):
+                raise ProvenanceValidationError(
+                    f"Derivation reference must identify a {relation_type.__name__}: {relation_ref}"
+                )
+            for candidate in candidates:
+                # Imported PROV may omit details supplied by the Derivation.
+                # Missing values do not contradict an explicit endpoint.
+                relation_entity = candidate.args[entity_position]
+                if relation_entity is not None and relation_entity != entity:
+                    raise ProvenanceValidationError(
+                        f"Derivation Entity disagrees with its {relation_type.__name__}: {record.identifier}"
+                    )
+                relation_activity = candidate.args[1 - entity_position]
+                if activity is not None and relation_activity is not None and relation_activity != activity:
+                    raise ProvenanceValidationError(
+                        f"Derivation Activity disagrees with its {relation_type.__name__}: {record.identifier}"
+                    )
+                if relation_activity is not None:
+                    referenced_activities.add(relation_activity)
+        if len(referenced_activities) > 1:
+            raise ProvenanceValidationError(
+                f"Derivation Generation and Usage reference different Activities: {record.identifier}"
+            )
+
+    def _validate_derivation(
+        self,
+        record: ProvDerivation,
+        records_by_id: dict[QualifiedName, list[ProvRecord]],
+    ) -> None:
+        self._validate_derivation_references(record, records_by_id)
         reference = record.identifier
         if reference is None or reference.namespace.uri != self.namespace_uri:
             return
@@ -366,6 +470,40 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
             if len(activities) > 1:
                 raise ProvenanceValidationError(f"active Entity has more than one generating Activity: {entity}")
 
+    @staticmethod
+    def _validate_causal_acyclicity(records: Sequence[ProvRecord]) -> None:
+        """Reject derivation cycles, without inferring causality from Usage.
+
+        Use an iterative topological traversal so long valid ancestry chains
+        do not depend on Python's recursion limit. Sets deduplicate assertions
+        repeated within or across active documents.
+        """
+
+        children: dict[QualifiedName, set[QualifiedName]] = defaultdict(set)
+        indegree: dict[QualifiedName, int] = defaultdict(int)
+        for record in records:
+            if not isinstance(record, ProvDerivation):
+                continue
+            generated, used = record.args[:2]
+            if not isinstance(generated, QualifiedName) or not isinstance(used, QualifiedName):
+                continue
+            if generated not in children[used]:
+                children[used].add(generated)
+                indegree[generated] += 1
+                indegree.setdefault(used, 0)
+
+        ready = deque(entity for entity, count in indegree.items() if count == 0)
+        visited = 0
+        while ready:
+            entity = ready.popleft()
+            visited += 1
+            for child in children.get(entity, ()):
+                indegree[child] -= 1
+                if indegree[child] == 0:
+                    ready.append(child)
+        if visited != len(indegree):
+            raise ProvenanceValidationError("active causal graph contains a derivation cycle")
+
     def _object_uuid(self, record: ProvRecord, expected_kind: str) -> uuid.UUID:
         reference = record.identifier
         if reference is None or reference.namespace.uri != self.namespace_uri:
@@ -404,12 +542,12 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
         if not values or any(not isinstance(value, str) or not value.strip() for value in values):
             raise ProvenanceValidationError(f"{label} must contain non-empty strings: {record.identifier}")
 
-    def _live_dataset_ids(self) -> set[uuid.UUID]:
-        rows = self.connection.execute("SELECT uuid FROM dataset WHERE deltime = 0").fetchall()
-        result: set[uuid.UUID] = set()
+    def _live_dataset_formats(self) -> dict[uuid.UUID, str]:
+        rows = self.connection.execute("SELECT uuid, fileformat FROM dataset WHERE deltime = 0").fetchall()
+        result: dict[uuid.UUID, str] = {}
         for row in rows:
             try:
-                result.add(uuid.UUID(str(row[0])))
+                result[uuid.UUID(str(row[0]))] = str(row[1])
             except (AttributeError, TypeError, ValueError):
                 # Invalid unrelated dataset rows are diagnosed when referenced.
                 continue
@@ -454,7 +592,7 @@ class CampaignProvValidator:  # pylint: disable=too-few-public-methods
         if not isinstance(reference, QualifiedName) or reference.namespace.uri != self.namespace_uri:
             raise ProvenanceValidationError(f"{label} Activity is not campaign-qualified: {reference}")
         match = _OBJECT_ID.fullmatch(reference.localpart)
-        if match is None or match.group(1) not in {"run", "activity"} or match.group(2) != expected_hex:
+        if match is None or match.group(1) != "activity" or match.group(2) != expected_hex:
             raise ProvenanceValidationError(f"{label} identifier does not match its Activity: {reference}")
 
     def _campaign_uuid(self) -> uuid.UUID:
