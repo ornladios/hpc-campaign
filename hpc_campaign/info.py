@@ -303,6 +303,8 @@ WHERE d.fileformat = 'TEXT'
 ORDER BY d.rowid, r.rowid, f.fileid;
 """
 
+SELECT_VIDEOS_CMD = SELECT_TEXTS_CMD.replace("d.fileformat = 'TEXT'", "d.fileformat = 'VIDEO'")
+
 SELECT_SCALAR_FIELDS_CMD = """
 SELECT
     d.rowid             AS ds_id,
@@ -546,6 +548,25 @@ def info_texts(  # pylint: disable=too-many-locals
         )
 
 
+def info_videos(
+    args: argparse.Namespace,
+    info_data: InfoResult,
+    cur: sqlite3.Cursor,
+    dirs_archived: dict[int, bool],
+):
+    res = sql_execute(cur, SELECT_VIDEOS_CMD)
+    for row in res:
+        info_row(
+            args,
+            info_data,
+            row,
+            accuracy=False,
+            embedded=(row["repfile_id"] is not None),
+            resolution=None,
+            dirs_archived=dirs_archived,
+        )
+
+
 def collect_info(  # pylint: disable=too-many-locals,too-many-statements
     args: argparse.Namespace, con: sqlite3.Connection
 ) -> InfoResult:
@@ -660,6 +681,7 @@ def collect_info(  # pylint: disable=too-many-locals,too-many-statements
     else:
         info_datas(args, info_datasets, cur, dirs_archived)
         info_texts(args, info_datasets, cur, dirs_archived)
+        info_videos(args, info_datasets, cur, dirs_archived)
         info_images(args, info_datasets, cur, dirs_archived)
         info_scalar_fields(args, info_datasets, cur, dirs_archived)
 
@@ -896,7 +918,9 @@ def format_image_associations(info_data: InfoResult) -> str:
     lines = []
     sequences = list(info_data.visualization_sequences.values())
     image_datasets = [
-        dataset for dataset in _collect_all_datasets(info_data) if dataset.file_format in {"IMAGE", "SCALAR_FIELD"}
+        dataset
+        for dataset in _collect_all_datasets(info_data)
+        if dataset.file_format in {"IMAGE", "VIDEO", "SCALAR_FIELD"}
     ]
 
     for dataset in image_datasets:

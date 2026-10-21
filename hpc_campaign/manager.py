@@ -10,6 +10,7 @@
 import argparse
 import json
 import math
+import mimetypes
 import sqlite3
 import sys
 import zlib
@@ -20,6 +21,8 @@ from pathlib import Path
 from time import time_ns
 from uuid import UUID
 
+import adios2  # type: ignore[import-untyped]
+import h5py
 import nacl.secret
 import numpy as np
 import yaml
@@ -41,6 +44,7 @@ from .manager_funcs import (
     delete_dataset,
     delete_replica,
     delete_time_series,
+    probe_video_frame_count,
     set_default_args,
     update,
 )
@@ -327,6 +331,255 @@ class Manager:  # pylint: disable=too-many-public-methods
         if not self.connected:
             self.open(create=True, truncate=False)
         update(cmd_args, self.cur, self.con)
+
+    def video(
+        self,
+        file_path: str | Path,
+        *,
+        name: str,
+        variables,
+        vis_type: str,
+        time_range: tuple[float, float] | None = None,
+        time_variable: str | tuple[str, str] | None = None,
+        time_indices: Sequence[int] | None = None,
+        frame_times: Sequence[float] | None = None,
+        time_unit: str = "s",
+        mime_type: str | None = None,
+        frame_count: int | None = None,
+        source_dataset: str | None = None,
+        sequence_name: str | None = None,
+        store: bool = False,
+        replace: bool = False,
+    ) -> int:
+        """Register a video dataset and its physical-time visualization mapping.
+
+        ``time_variable`` identifies a campaign dataset and variable. The
+        variable is read from an accessible local replica, and ``time_indices``
+        chooses one value for each video frame.
+        """
+        path = Path(file_path).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"Video file not found: {path}")
+        if not name or not str(name).strip():
+            raise ValueError("video requires a non-empty dataset name")
+
+        if not self.connected:
+            self.open(create=True, truncate=False)
+
+        resolved_frame_count = self._resolve_video_frame_count(path, frame_count)
+        metadata = self._video_time_metadata(
+            resolved_frame_count,
+            time_range=time_range,
+            time_variable=time_variable,
+            time_indices=time_indices,
+            frame_times=frame_times,
+            time_unit=time_unit,
+            source_dataset=source_dataset,
+            mime_type=mime_type,
+            filename=path.name,
+        )
+
+        update(
+            self._build_command_args(
+                "video",
+                {"file": str(path), "name": str(name), "store": bool(store)},
+            ),
+            self.cur,
+            self.con,
+        )
+
+        if sequence_name is None:
+            sequence_name = str(Path(name).parent)
+            if sequence_name == ".":
+                sequence_name = str(name)
+        return self.visualization_sequence(
+            name=sequence_name,
+            vis_type=vis_type,
+            variables=variables,
+            source_dataset=source_dataset,
+            items=[{"type": "VIDEO", "name": str(name), "metadata": metadata}],
+            metadata={"time_mode": "physical_time", "time_unit": str(time_unit)},
+            replace=replace,
+        )
+
+    @staticmethod
+    def _resolve_video_frame_count(path: Path, frame_count: int | None) -> int:
+        resolved_count = int(frame_count) if frame_count is not None else probe_video_frame_count(path)
+        if resolved_count is None:
+            raise ValueError("Could not determine video frame count; install ffprobe or pass frame_count")
+        if resolved_count <= 0:
+            raise ValueError("frame_count must be positive")
+        return resolved_count
+
+    def _video_time_metadata(
+        self,
+        frame_count: int,
+        *,
+        time_range: Sequence[float] | None,
+        time_variable: str | tuple[str, str] | None,
+        time_indices: Sequence[int] | None,
+        frame_times: Sequence[float] | None,
+        time_unit: str,
+        source_dataset: str | None,
+        mime_type: str | None,
+        filename: str,
+    ) -> dict:
+        resolved_times, time_source = self._resolve_video_timing(
+            frame_count,
+            time_range=time_range,
+            time_variable=time_variable,
+            time_indices=time_indices,
+            frame_times=frame_times,
+            source_dataset=source_dataset,
+        )
+        if not str(time_unit).strip():
+            raise ValueError("time_unit must be non-empty")
+
+        metadata = {
+            "time_mode": "physical_time",
+            "time_values": resolved_times,
+            "time_unit": str(time_unit),
+            "frame_count": frame_count,
+            "time_source": time_source,
+        }
+        resolved_mime_type = str(mime_type or mimetypes.guess_type(filename)[0] or "").strip()
+        if resolved_mime_type:
+            metadata["mime_type"] = resolved_mime_type
+        return metadata
+
+    def _resolve_video_timing(
+        self,
+        frame_count: int,
+        *,
+        time_range: Sequence[float] | None,
+        time_variable: str | tuple[str, str] | None,
+        time_indices: Sequence[int] | None,
+        frame_times: Sequence[float] | None,
+        source_dataset: str | None,
+    ) -> tuple[list[float], dict]:
+        timing_modes = sum(value is not None for value in (time_range, frame_times, time_indices))
+        if timing_modes != 1:
+            raise ValueError("Specify exactly one of time_range, time_indices, or frame_times")
+        if time_range is not None:
+            if time_variable is not None:
+                raise ValueError("time_variable may only be used with time_indices")
+            return self._video_times_from_range(time_range, frame_count)
+        if time_indices is not None:
+            if time_variable is None:
+                raise ValueError("time_indices requires time_variable")
+            return self._video_times_from_indices(
+                time_variable,
+                time_indices,
+                frame_count,
+                source_dataset,
+            )
+        if time_variable is not None:
+            raise ValueError("time_variable may only be used with time_indices")
+        if frame_times is None:
+            raise ValueError("Specify frame_times when using explicit video timing")
+        return self._normalize_video_times(frame_times, frame_count), {"kind": "explicit"}
+
+    @staticmethod
+    def _normalize_video_times(values: Sequence[float], frame_count: int) -> list[float]:
+        result = [float(value) for value in values]
+        if len(result) != frame_count:
+            raise ValueError(f"Video timing requires one time per frame ({frame_count}); received {len(result)}")
+        if any(not math.isfinite(value) for value in result):
+            raise ValueError("Video frame times must be finite numbers")
+        if any(result[index + 1] < result[index] for index in range(len(result) - 1)):
+            raise ValueError("Video frame times must be non-decreasing")
+        return result
+
+    @classmethod
+    def _video_times_from_range(cls, time_range: Sequence[float], frame_count: int) -> tuple[list[float], dict]:
+        if len(time_range) != 2:
+            raise ValueError("time_range must contain (t_min, t_max)")
+        t_min, t_max = (float(value) for value in time_range)
+        if not math.isfinite(t_min) or not math.isfinite(t_max) or t_max < t_min:
+            raise ValueError("time_range must contain finite values with t_max >= t_min")
+        if frame_count == 1:
+            if t_min != t_max:
+                raise ValueError("A one-frame video requires equal time_range endpoints")
+            times = [t_min]
+        else:
+            delta = (t_max - t_min) / (frame_count - 1)
+            times = [t_min + index * delta for index in range(frame_count)]
+        return times, {"kind": "range", "t_min": t_min, "t_max": t_max}
+
+    def _video_times_from_indices(
+        self,
+        time_variable: str | tuple[str, str],
+        time_indices: Sequence[int],
+        frame_count: int,
+        source_dataset: str | None,
+    ) -> tuple[list[float], dict]:
+        if isinstance(time_variable, (list, tuple)):
+            if len(time_variable) != 2:
+                raise ValueError("time_variable tuple must be (dataset_name, variable_name)")
+            time_dataset, time_variable_name = str(time_variable[0]), str(time_variable[1])
+        else:
+            if not source_dataset:
+                raise ValueError("A string time_variable requires source_dataset")
+            time_dataset, time_variable_name = str(source_dataset), str(time_variable)
+        indices = [int(index) for index in time_indices]
+        if len(indices) != frame_count:
+            raise ValueError(f"time_indices requires one index per frame ({frame_count}); received {len(indices)}")
+        source_values = self._read_campaign_time_values(time_dataset, time_variable_name)
+        if any(index < 0 or index >= len(source_values) for index in indices):
+            raise ValueError("time_indices contains an index outside time_values")
+        times = self._normalize_video_times([source_values[index] for index in indices], frame_count)
+        source = {
+            "kind": "variable",
+            "variable": {"dataset": time_dataset, "name": time_variable_name},
+            "indices": indices,
+        }
+        return times, source
+
+    def _read_campaign_time_values(self, dataset_name: str, variable_name: str) -> list[float]:
+        rows = self.cur.execute(
+            """
+            select dir.name as directory, rep.name as replica, d.fileformat as fileformat
+            from dataset as d
+            join replica as rep on rep.datasetid = d.rowid and rep.deltime = 0
+            join directory as dir on dir.rowid = rep.dirid and dir.deltime = 0
+            where d.name = ? and d.deltime = 0
+            order by rep.rowid
+            """,
+            (dataset_name,),
+        ).fetchall()
+        if not rows:
+            raise LookupError(f"Time variable dataset not found: {dataset_name}")
+
+        local_path = next(
+            (
+                Path(row["directory"]) / str(row["replica"])
+                for row in rows
+                if (Path(row["directory"]) / str(row["replica"])).exists()
+            ),
+            None,
+        )
+        if local_path is None:
+            raise FileNotFoundError(f"No accessible local replica for time variable dataset: {dataset_name}")
+
+        file_format = str(rows[0]["fileformat"])
+        if file_format == "ADIOS":
+            with adios2.FileReader(str(local_path)) as reader:
+                available = reader.available_variables()
+                candidates = (variable_name, f"{dataset_name}/{variable_name}")
+                resolved_name = next((name for name in candidates if name in available), variable_name)
+                variable = reader.inquire_variable(resolved_name)
+                step_count = int(available[resolved_name]["AvailableStepsCount"])
+                values = reader.read(variable, step_selection=[0, step_count])
+        elif file_format == "HDF5":
+            with h5py.File(local_path, "r") as input_file:
+                values = np.asarray(input_file[variable_name])
+        else:
+            raise ValueError(f"Time variable dataset must be ADIOS or HDF5, not {file_format}")
+
+        values = np.asarray(values).reshape(-1)
+        if values.size == 0:
+            raise ValueError(f"Time variable is empty: {dataset_name}/{variable_name}")
+        return [float(value) for value in values]
 
     def image_data(
         self,
@@ -1239,6 +1492,12 @@ def main(args=None, prog=None):
                 metadata=manifest.get("metadata"),
                 replace=bool(manifest.get("replace", False) or parser.args.replace),
             )
+        elif parser.args.command == "video":
+            manifest = _load_json_object(parser.args.manifest, "video manifest")
+            _require_manifest_fields(manifest, ("file_path", "name", "variables", "vis_type"))
+            video_options = dict(manifest)
+            video_options["replace"] = bool(video_options.get("replace", False) or parser.args.replace)
+            manager.video(**video_options)
         elif parser.args.command == "delete":
             if parser.args.uuid is not None:
                 for uid in parser.args.uuid:

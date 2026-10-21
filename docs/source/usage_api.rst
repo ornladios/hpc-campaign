@@ -184,6 +184,75 @@ If ``name`` is a short token, the visualization sequence is stored under
 provided explicitly, they are generated as children of the sequence name, using
 ``steps`` when supplied.
 
+**Videos**
+
+Use ``video`` to register a video file as an opaque ``VIDEO`` dataset and link
+it to source variables. The campaign stores one physical-time value per video
+frame as visualization-item metadata. By default, the video is referenced in
+place; ``store=True`` embeds its bytes without recompressing them. Frame count
+is read from container metadata with ``ffprobe`` when available. If that count
+is unavailable, pass ``frame_count`` explicitly. ``ffprobe`` is optional and
+is not a Python package dependency. The item records an inferred MIME type from
+the filename; pass ``mime_type`` when the extension is ambiguous or missing.
+
+Provide frame times in exactly one of three ways:
+
+.. code-block:: python
+
+  manager.video(
+      "movie.mp4",
+      name="run001/visualizations/density/movie.mp4",
+      sequence_name="run001/visualizations/density/movie",
+      source_dataset="run001/output.bp",
+      variables=["density"],
+      vis_type="movie",
+      time_range=(0.0, 10.0),  # evenly spans the inclusive endpoints
+      frame_count=101,         # optional when ffprobe reports the count
+  )
+
+Select times from a registered ADIOS or HDF5 time variable by giving one index
+per video frame. The time variable must be available from a local replica when
+the video is added:
+
+.. code-block:: python
+
+  manager.video(
+      "movie.mp4",
+      name="run001/visualizations/density/movie.mp4",
+      source_dataset="run001/output.bp",
+      variables=["density"],
+      vis_type="movie",
+      time_variable=("run001/output.bp", "time"),
+      time_indices=[0, 5, 10, 15],
+  )
+
+For irregular timing that is not stored in a campaign variable, supply one
+physical time per frame with ``frame_times=[...]``. Times must be finite and
+non-decreasing. ``time_unit`` defaults to seconds and is stored with the item
+metadata.
+
+The command-line interface accepts a JSON manifest with the same arguments as
+``Manager.video()``. For example, save the following as ``movie.json`` and run
+``hpc_campaign manager campaign video movie.json``:
+
+.. code-block:: json
+
+  {
+    "file_path": "movie.mp4",
+    "name": "run001/visualizations/density/movie.mp4",
+    "sequence_name": "run001/visualizations/density/movie",
+    "source_dataset": "run001/output.bp",
+    "variables": ["density"],
+    "vis_type": "movie",
+    "time_range": [0.0, 10.0],
+    "frame_count": 101,
+    "store": true
+  }
+
+The manifest can use ``time_variable`` with ``time_indices`` or explicit
+``frame_times`` instead of ``time_range``. Add ``--replace`` to replace an
+existing visualization sequence with the same name.
+
 **4. text**
 
 Add one or more text files to the archive. If requested, text files are stored within the archive. In that case, zlib is used to compress the text file.

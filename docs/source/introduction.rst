@@ -9,6 +9,7 @@ A Campaign Archive file can contain
 - metadata of ADIOS2 BP5 files 
 - metadata of HDF5 files 
 - images (stored inside the campaign archive, or reference to a remote image)
+- videos (stored inside the campaign archive, or reference to a remote video)
 - text files (stored compressed in campaign archive, or reference to a remote text file)
 
 Each dataset can have multiple replicas, in multiple host/directory locations. Datasets are assigned a unique identifier at first insert and then all history of replicas can be tracked by the unqiue identifier. 
@@ -45,6 +46,7 @@ Concepts and names
 
     * **Data**. Self-describing data that has metadata part that can be included in the campaign archive itself. A dataset has a representation name, as they appear in the campaign hierarchy, which can be different from the path/name on the disk. Currently ADIOS2 and HDF5 files are supported but the list of supported formats will grow in the future.
     * **Image**. An image file, either embedded in the campaign archive, or just a reference to a remote image, or the latter with an embedded thumbnail image in the campaign archive. 
+    * **Video**. An opaque movie file, either embedded in the campaign archive or referenced at a remote location. Visualization metadata can associate each frame with physical time.
     * **Text**. This is the "blob" for campaign management. Anything else can be inserted as "text" which has no other metadata. It can be embedded or just refer to a remote object. ADIOS2 reader will present this as a char[] array in the hierarchy. 
 
 * **Replica**. A dataset can be in multiple locations (multiple hosts, directories, and on archival storages). The replicas are identical except for images, where different resolutions can be bundled into a single item in the campaign archive.

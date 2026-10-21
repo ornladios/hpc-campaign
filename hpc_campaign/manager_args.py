@@ -11,6 +11,7 @@ __accepted_commands__ = [
     "text",
     "schema",
     "image",
+    "video",
     "scalar-field",
     "visualization-sequence",
     "add-archival-storage",
@@ -334,6 +335,23 @@ thumbnail_uuid, metadata, and replace.
             action="store_true",
         )
 
+        # parser for the "video" command
+        parser_video = argparse.ArgumentParser(
+            prog=f"{prog} <archive> video",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""
+Add a video and its physical-time visualization metadata from a JSON manifest.
+The manifest contains the same fields as the Python Manager.video() API.
+""",
+        )
+        parsers["video"] = parser_video
+        parser_video.add_argument("manifest", help="JSON video manifest")
+        parser_video.add_argument(
+            "--replace",
+            help="Replace an existing visualization sequence with the same name",
+            action="store_true",
+        )
+
         # parser for the "add-archival-storage" command
         parser_addarchive = argparse.ArgumentParser(
             prog=f"{prog} <archive>  add-archival-storage",
@@ -467,6 +485,9 @@ One may need to run upgrade several times to reach the newest format.
             del args.metadata_json
             del args.replica_name
         elif command == "visualization-sequence":
+            del args.manifest
+            del args.replace
+        elif command == "video":
             del args.manifest
             del args.replace
         elif command == "add-archival-storage":
