@@ -6,6 +6,13 @@
 
 **Intended audience:** HPC Campaign maintainers and the implementer of the first provenance-schema version
 
+**Current API revision:** The authoring model below follows the current API:
+logical variables are registered independently; simulation, reduction, QoI,
+and visualization producers are Activities. Each Activity records causal
+product inputs, registered output products, and optional Activity metadata.
+The API and worked examples in this document are authoritative where older
+planning notes below differ.
+
 ## 1. Purpose
 
 This document defines the agreed direction for adding scientific provenance and future human/AI collaboration records to HPC Campaign. It is intended to be self-contained enough to begin a new implementation discussion without relying on the conversation that produced it.
@@ -50,7 +57,7 @@ The campaign schema is therefore an index of schemas, not a universal schema for
 The design must make it possible to answer:
 
 - What is this data product?
-- Which simulation run or processing activity generated it?
+- Which simulation or processing Activity generated it?
 - Which immediate inputs were used?
 - Which source data contributed transitively?
 - Which plan, script, configuration, software, human, or AI was involved?
@@ -91,7 +98,7 @@ The longer-term design must make it possible for people and AI assistants to:
 - Support multiple internal provenance documents without changing public
   object identity, even if an initial small campaign uses one document.
 - Make ordinary discovery and lineage queries bounded and paginated; do not
-  return every run, logical variable, and derived artifact merely because a variable
+  return every simulation Activity, logical variable, and derived artifact merely because a variable
   definition matched.
 - Provide overview counts and grouping before loading detailed records.
 - Keep campaign metadata within the intended operational budget: preferably a
@@ -159,7 +166,7 @@ Campaign documents are data. They must not automatically be treated as trusted s
 ### 5.8 Overview first, details on demand
 
 The campaign viewer and API should behave like a linked information space. A
-high-level campaign view presents runs, variable definitions, activity and
+high-level campaign view presents simulation Activities, variable definitions, activity and
 product counts, published findings, and available schemas. Stable IDs link to
 more detailed records that are loaded only when requested.
 
@@ -175,8 +182,8 @@ operation with depth and result limits.
 - **Entity:** A concrete or conceptual thing with an identifiable state, such as a logical data product, schema document, script, plan, plot, message, or conclusion.
 - **Activity:** Something that occurred and used or generated entities, such as a simulation execution, reduction, QoI calculation, visualization, query, or comparison.
 - **Agent:** Something bearing responsibility, such as a person, software package, AI assistant, organization, instrument, or service.
-- **Plan:** An entity describing intended actions or steps, such as a workflow
-  definition, configuration, script, or prescriptive action specification.
+- **Plan:** An Entity describing intended actions or steps, such as a workflow
+  definition, configuration, or script.
 - **Usage:** A relationship stating that an activity used an entity.
 - **Generation:** A relationship stating that an activity generated an entity.
 - **Derivation:** A relationship stating that one entity was derived from another.
@@ -185,15 +192,15 @@ operation with depth and result limits.
 
 ### 6.2 Campaign terms
 
-- **Campaign run:** One simulation or execution context. In PROV it is represented as an activity, normally typed `hpc:SimulationRun`.
-- **Variable definition:** A campaign-level scientific concept such as `pressure`, `temperature`, `flux`, or `total_flux`. It provides a common name across simulation codes and runs.
-- **Logical variable:** A stable campaign object and PROV entity identifying one concrete scientific data product in a run. A time-varying product remains one logical variable while its underlying dataset grows.
-- **Primary variable:** The default logical variable for one variable definition within one run. It is explicit, not inferred.
+- **Simulation Activity:** A root Activity typed `hpc:Simulation` that generates source variables. Its display name is an Activity label, not a separate object.
+- **Variable definition:** A campaign-level scientific concept such as `pressure`, `temperature`, `flux`, or `total_flux`. It provides a common name across simulation codes and executions.
+- **Logical variable:** A stable campaign object and PROV Entity identifying one concrete scientific data product. Its producing Activity is expressed by a Generation relationship.
+- **Primary variable:** An unresolved discovery concept. It is not represented in the current provenance graph.
 - **Activity type/action:** A specific campaign-recognized activity type such as reduction, projection, quantity of interest, or visualization.
 - **Category:** A profile-defined grouping above specific activity types, used for queries and presentation. Categories are not defined by W3C PROV.
-- **Action specification:** Optional structured producer metadata such as method, error bound, parameters, or script reference. In PROV it is represented by an immutable entity that may also be typed as a plan.
-- **Run profile:** A versioned campaign resource providing code-specific defaults such as variable aliases, units strings, and coordinate-system strings.
-- **Provenance profile:** A versioned campaign resource defining recognized activity types, category mappings, role rules, and action-specification rules.
+- **Activity metadata:** Optional structured JSON stored directly on the Activity, such as method, error bound, or parameters.
+- **Simulation profile:** A deferred concept for simulation-specific defaults. It is not part of the current authoring API.
+- **Provenance profile:** A deferred concept for activity categories and role rules. Current metadata is not validated against per-Activity schemas.
 - **Schema resource:** A concrete, versioned schema, profile, data model, or interpretation guide stored or located by the campaign and represented as a PROV entity.
 
 ## 7. Version-one supported PROV subset
@@ -219,14 +226,16 @@ The version-one mapping is:
 | Campaign concept | PROV representation | Required campaign detail |
 |---|---|---|
 | Existing campaign dataset | Entity typed `hpc:Dataset` | Stable UUID, name, and location |
-| Logical variable | Entity typed `hpc:LogicalVariable` | Stable logical-variable UUID, run, dataset, physical name, and definition |
-| Simulation run | Activity typed `hpc:SimulationRun` | Stable UUID and run name |
+| Logical variable | Entity typed `hpc:LogicalVariable` | Stable logical-variable UUID, dataset, physical name, and definition |
+| Image or video | Entity typed `hpc:Dataset` and `hpc:Image` or `hpc:Video` | Existing dataset UUID, matching format, and location |
+| Image or video sequence snapshot | Entity typed `prov:Collection`, `hpc:VisualizationSequence`, and a media sequence type | Stored Entity UUID, ordered member dataset UUIDs, and `hadMember` links |
+| Simulation | Root Activity typed `hpc:Simulation` | Stable Activity UUID and optional label |
 | Processing execution | Activity with a profile-approved HPC type | Stable UUID and action type |
-| Logical-variable input | Identified Usage | Activity, exact logical-variable entity, and role |
-| Logical-variable output | Identified Generation | Exact logical-variable entity, activity, and role |
+| Causal product input | Identified Usage | Activity, exact product Entity, and role |
+| Product output | Identified Generation | Exact product Entity, Activity, and role |
 | Data-product dependency | Identified Derivation | Output, input, activity, generation, and usage for campaign-authored detailed records |
 | Workflow definition | Entity typed `prov:Plan` and `hpc:WorkflowPlan` | Stable UUID and plan content or location |
-| Action specification | Entity typed `hpc:ActionSpecification`, and optionally `prov:Plan` | Canonical JSON and content hash |
+| Activity metadata | Optional `hpc:metadata` attribute on an Activity | Canonical JSON object |
 | Person, software, organization, instrument, or service | Agent with a standard or HPC-qualified type | Stable UUID; descriptive metadata is optional |
 | Responsibility for an execution | Association | Activity, agent, and optional plan |
 | Authorship/responsibility for an entity | Attribution | Entity and agent |
@@ -278,7 +287,6 @@ prefix hpcid <urn:hpc-campaign:CAMPAIGN_UUID:>
 Recommended qualified names include a type prefix so the local part never begins with a digit:
 
 ```text
-hpcid:run_RUN_UUID
 hpcid:variable_VARIABLE_UUID
 hpcid:activity_ACTIVITY_UUID
 hpcid:usage_ACTIVITY_UUID_ROLE
@@ -305,25 +313,28 @@ For the active campaign provenance graph:
 ### 9.1 Stable entity identity
 
 A logical variable has one stable campaign UUID and one PROV entity identity.
-Version one treats a time-varying variable, image sequence, or other appendable
-product as a single scientific data product while its dataset grows.
+Version one treats a time-varying logical variable as a single scientific data
+product while its dataset grows. Image/video collection snapshots follow the
+separate membership rules in section 9.5.
 
 ```text
 logical variable UUID -> PROV entity hpcid:variable_UUID
                          -> dataset location containing all available timesteps
 ```
 
-Each logical-variable entity records:
+Each logical-variable Entity records:
 
 - Stable logical-variable UUID
-- Run
 - Dataset entity and human-readable dataset name
 - Physical variable name
 - Variable definition
 - Dataset location
 - Optional units string
 - Optional coordinate-system string
-- Generating activity, if known
+
+The producer is represented by `wasGeneratedBy(variable, activity)`; it is not
+an intrinsic variable attribute. A variable may have no producer when its
+origin is unknown, and may have at most one producer in the active campaign.
 
 Every provenance relationship resolves directly to this entity. The entity may
 refer to a dataset whose physical contents acquire additional timesteps after
@@ -336,14 +347,13 @@ exact timestep range visible at the time of use.
 entity(hpcid:variable_PRESSURE_UUID, [
     prov:type = hpc:LogicalVariable,
     hpc:logicalVariableId = "PRESSURE_UUID",
-    hpc:run = hpcid:run_RUN_UUID,
     hpc:dataset = hpcid:dataset_OUTPUT_UUID,
     hpc:datasetName = "output",
     hpc:variable = "P",
     hpc:variableDefinition = "pressure",
     hpc:units = "Pa",
     hpc:coordinateSystem = "boozer",
-    prov:location = "data/run-001/output.bp"
+    prov:location = "data/simulation-001/output.bp"
 ])
 ```
 
@@ -351,7 +361,7 @@ The example uses PROV-N-like notation for readability. The canonical stored enco
 
 ### 9.3 Append behavior
 
-Appending timesteps or sequence members does not create a new PROV entity,
+Appending variable timesteps does not create a new PROV entity,
 Generation, or Derivation. The same logical-variable UUID and qualified name
 remain valid:
 
@@ -377,8 +387,40 @@ the product changes, for example:
   of the same time-varying product.
 
 Record the normal Generation and Derivation relationships for the new entity.
-Formal snapshot entities, timestep-range identities, and revision chains are
+Formal logical-variable snapshots, timestep-range identities, and revision chains are
 deferred until a use case requires provenance for an exact historical state.
+
+### 9.5 Images, videos, and ordered collections
+
+Images and videos are registered datasets exposed through
+`manager.add_dataset_entity(name)`. Their Entity uses the existing dataset UUID
+and types `hpc:Dataset` and `hpc:Image` or `hpc:Video`. They do not require a
+logical-variable wrapper. Both causal inputs and outputs may reference these
+Entities, as well as logical variables and dataset products. Plans remain
+context rather than causal endpoints.
+
+`manager.add_visualization_sequence_entity(name)` registers the sequence
+as an Entity typed `prov:Collection`, `hpc:VisualizationSequence`, and either
+`hpc:ImageSequence` or `hpc:VideoSequence`. Standard `hadMember` relationships
+describe unique members. `hpc:memberOrder` is a canonical JSON array of dataset
+UUIDs that preserves display order and repeated members. `hpc:sequenceName`
+identifies the registered sequence from which the snapshot was obtained.
+
+The collection UUID is allocated once and stored in canonical PROV, requiring
+no additional ACA tables. Unchanged ordered membership reuses that Entity;
+changed membership or order creates a new collection snapshot. Earlier
+snapshots retain their original membership and producer. Membership alone does
+not imply Generation or Derivation for a member; record those relationships
+explicitly when needed.
+
+`manager.dataset_entity(name)` and
+`manager.visualization_sequence_entity(name)` are read-only lookup methods over
+active documents. They never create or refresh records and raise `LookupError`
+if the Entity or snapshot matching the current membership is not registered.
+The explicit `add_*` methods are idempotent and skip serialization and writes
+when registration is unchanged. Dataset registration can refresh new replica
+locations; changed sequence membership is registered explicitly as a new
+snapshot. Lookup against a missing archive raises rather than creating it.
 
 ## 10. Variable definitions, storage, and discovery metadata
 
@@ -389,19 +431,19 @@ deferred until a use case requires provenance for an exact historical state.
 Different physical names may share one definition:
 
 ```text
-run-001 / output / pressure -> variableDefinition "pressure"
-run-002 / output / P        -> variableDefinition "pressure"
-run-003 / output / press    -> variableDefinition "pressure"
+simulation-001 / output / pressure -> variableDefinition "pressure"
+simulation-002 / output / P        -> variableDefinition "pressure"
+simulation-003 / output / press    -> variableDefinition "pressure"
 ```
 
-Definitions describe observed products. Version one does not require every run to contain every definition.
+Definitions describe observed products. Version one does not require every simulation to contain every definition.
 
 Do not map variable definitions to `specializationOf` without a future semantic review. A concrete pressure array is not necessarily a PROV specialization of the abstract scientific concept `pressure`.
 
 ### 10.2 Dataset location
 
 The existing campaign dataset remains the storage object or logical namespace
-that owns a location. It is not owned by a run. A dataset is represented in
+that owns a location. It is not owned by a simulation Activity. A dataset is represented in
 PROV as a stable entity so schemas, guides, activities, and logical variables
 can refer to the same object:
 
@@ -410,7 +452,7 @@ entity(hpcid:dataset_OUTPUT_UUID, [
     prov:type = hpc:Dataset,
     prov:label = "output",
     hpc:format = "adios-bp",
-    prov:location = "data/run-001/output.bp"
+    prov:location = "data/simulation-001/output.bp"
 ])
 ```
 
@@ -437,7 +479,7 @@ not require another campaign database.
 
 Primary-variable and preferred-preview relationships are campaign discovery metadata rather than core provenance.
 
-- Primary selection remains explicit and unique for one `(run, variable definition)` pair.
+- Primary-variable selection is unresolved and is not represented in this provenance model.
 - Preferred preview points to another logical variable suitable for quick presentation.
 - Store these as separate campaign discovery bindings, retaining the current
   normalized-table approach. Do not place mutable `primary` or
@@ -465,27 +507,28 @@ without expanding one row per timestep.
 
 General PROV Collection support is deferred.
 
-## 11. Runs, plans, workflows, and executions
+## 11. Simulation Activities, plans, workflows, and executions
 
-### 11.1 Simulation run
+### 11.1 Simulation Activity
 
-A simulation run is represented as a PROV activity:
+A simulation is represented as a root PROV Activity:
 
 ```text
-activity(hpcid:run_RUN_UUID, [
-    prov:type = hpc:SimulationRun,
-    prov:label = "run-001",
-    hpc:runProfile = hpcid:schema_XGC_BOOZER_PROFILE_UUID_r1
+activity(hpcid:activity_SIMULATION_UUID, [
+    prov:type = hpc:Simulation,
+    prov:label = "simulation-001"
 ])
 ```
 
-Newly captured source variables should be generated by the run activity:
+Newly captured source variables should be generated by the simulation Activity:
 
 ```text
-wasGeneratedBy(hpcid:variable_PRESSURE_UUID, hpcid:run_RUN_UUID)
+wasGeneratedBy(hpcid:variable_PRESSURE_UUID, hpcid:activity_SIMULATION_UUID)
 ```
 
-Imported historical data may omit the generating run relationship when it is unknown. Do not fabricate an activity solely to satisfy the detailed model.
+Simulation Activities have no causal variable inputs. A variable with an
+unknown origin may have no producer; do not fabricate one solely to satisfy
+the graph model.
 
 ### 11.2 Plan versus execution
 
@@ -499,7 +542,7 @@ For example:
 
 ```text
 XGC configuration         -> Plan entity
-run-001 executing XGC     -> Activity
+simulation-001 executing XGC -> Activity
 mesh and pressure output  -> Generated entities
 ```
 
@@ -535,12 +578,13 @@ The initial profile should contain:
 
 | Campaign action | PROV type | Category |
 |---|---|---|
+| `simulation` | `hpc:Simulation` | `production` |
 | `reduction` | `hpc:Reduction` | `transformation` |
 | `projection` | `hpc:Projection` | `transformation` |
 | `quantity_of_interest` | `hpc:QuantityOfInterest` | `analysis` |
 | `visualization` | `hpc:Visualization` | `presentation` |
 
-MGARD and ZFP are methods recorded in an action specification. They are not activity types or representation kinds.
+MGARD and ZFP are optional metadata values on their Activity. They are not activity types or representation kinds.
 
 ### 12.3 Why retain categories
 
@@ -568,27 +612,21 @@ This prevents contradictory records such as a reduction activity explicitly labe
 
 ### 12.6 Activity granularity and product selection
 
-An activity represents an actual execution boundary, not necessarily one
-mathematical operation or one generated product. A single program invocation
-may use several inputs and generate several outputs. For example, one
-descriptive-statistics execution may use pressure and generate separate
-minimum, maximum, and mean logical variables. That execution should normally
-be recorded as one activity with three Generation relationships, not as three
-activities invented solely because there are three outputs.
+Each Activity represents one coherent transformation. It may have multiple
+causal inputs and outputs when those outputs belong to that transformation.
+Split unrelated work into separate Activities. For example, a routine that
+reads pressure and temperature to produce a pressure profile and a temperature
+average should be represented by two Activities.
 
-Use separate activities when the operations actually execute separately or
-when they have independently meaningful provenance, such as different agents,
-Plans, parameters, success or failure states, or approval decisions. The
-activity boundary should describe what happened rather than being chosen only
-to minimize the number of PROV records.
+By default, each output derives from every causal input. Use the explicit
+derivation map when outputs have different causal parents. Context Entities,
+such as a Fides model, may be recorded as used by the Activity but do not
+become causal-ancestry parents. Optional Activity metadata is descriptive
+and does not define causal relationships.
 
-Campaign profiles constrain recognized activity types, roles, and optional
-action-specification fields. They do not determine which scientific products a
-workflow should generate. Product-selection policies belong to the producing
-workflow or Plan. For example, a statistics Plan may request only pressure mean
-and maximum rather than six statistics for every numeric variable. The
-resulting activity then records only the products that were actually generated.
-This is a workflow policy and requires no change to the campaign PROV schema.
+Campaign profiles may constrain recognized activity types and roles. They do
+not determine which scientific products a workflow should generate.
+Product-selection policies belong to the producing workflow or Plan.
 
 Provenance should describe every generated product that is included as a
 logical campaign product. Implementations must not generate a large collection
@@ -629,7 +667,7 @@ wasGeneratedBy(
 Multiple inputs and outputs use multiple relationships:
 
 ```text
-used(visualization, pressure,    [prov:role = hpc:color])
+used(visualization, pressure,    [prov:role = hpc:color_by])
 used(visualization, temperature, [prov:role = hpc:contours])
 wasGeneratedBy(image, visualization, [prov:role = hpc:image])
 ```
@@ -655,69 +693,45 @@ centralized and tested; callers do not construct these names.
 Short examples in this document sometimes omit relationship IDs for
 readability. Canonical campaign-authored records include them.
 
-## 14. Action specifications
+## 14. Optional Activity metadata
 
 ### 14.1 Requirements
 
-An action specification is optional. It may contain method names, parameters, error bounds, script references, or producer-specific information.
+Activity metadata is optional. It may contain method names, parameters, error
+bounds, script references, or producer-specific information. The metadata is
+stored directly on the Activity as a canonical JSON object.
 
 The base implementation must not require universal keys.
 
 ### 14.2 Recommended PROV mapping
 
-Represent an action specification as an immutable entity typed as an HPC action
-specification. Add `prov:Plan` only when the specification prescribed how the
-activity was intended to execute:
+Represent the metadata directly on the Activity:
 
 ```text
-entity(hpcid:plan_REDUCTION_SPEC_UUID, [
-    prov:type = prov:Plan,
-    prov:type = hpc:ActionSpecification,
-    prov:value = "{\"error_bound\":0.0001,\"method\":\"mgard\"}",
-    hpc:mediaType = "application/json",
-    hpc:sha256 = "..."
+activity(hpcid:activity_REDUCTION_UUID, [
+    prov:type = hpc:Reduction,
+    hpc:metadata = "{\"error_bound\":0.0001,\"method\":\"mgard\"}"
 ])
 ```
 
-The JSON string is canonicalized before hashing. Equal specifications may be content-hash deduplicated.
+The JSON string is canonicalized before storage. Metadata is searchable as an
+Activity attribute and does not create a separate Entity, Plan, or Usage.
+Independently stored configurations and scripts can still be represented as
+Entities or Plans and associated with an Activity when useful.
 
-Record actual use with a role-qualified Usage relationship:
+### 14.3 Validation
 
-```text
-used(
-    hpcid:activity_REDUCTION_UUID,
-    hpcid:plan_REDUCTION_SPEC_UUID,
-    [prov:role = hpc:actionSpecification]
-)
-```
-
-This mapping preserves arbitrary JSON without requiring every nested key to become a PROV attribute.
-
-Usage and Association have different meanings and may both be correct:
-
-- `used(activity, specification)` states that the activity utilized the
-  specification or parameter record.
-- `wasAssociatedWith(activity, agent, plan)` states that the agent followed the
-  Plan in the context of the activity.
-
-Every campaign `action_spec` uses the first relationship. Add the second only
-when the specification is typed as `prov:Plan` and was actually adopted as a
-plan. A descriptive after-the-fact record is not automatically a Plan.
-
-### 14.3 Profile validation
-
-Profiles may continue to define:
-
-- required keys
-- optional keys
-- whether additional keys are allowed
-- optional expected primitive value types in a later version
-
-Validation operates on the decoded JSON object before the activity is committed.
+Current validation requires metadata to be an optional canonical JSON object.
+Every object key must be a string, including keys in nested dictionaries and
+dictionaries inside lists or tuples. Non-string keys are rejected before
+serialization rather than implicitly converted.
+Per-Activity key schemas are deferred.
 
 ### 14.4 Scripts and external specifications
 
-Executable scripts, notebooks, container descriptions, and external method specifications should be separate entities with locations or values. The action specification may reference them by campaign ID.
+Executable scripts, notebooks, container descriptions, and external method
+specifications may be separate Entities with locations or values. Activity
+metadata can record references when needed.
 
 Campaign-owned resources required to interpret the record must resolve within the campaign. External standards may be cited by URL but are not active objects in another campaign.
 
@@ -730,10 +744,10 @@ entity necessarily being derived from every entity that was used. W3C PROV
 therefore does **not** infer `wasDerivedFrom` from a
 `used`/`wasGeneratedBy` path alone.
 
-For example, a rendering activity may use a pressure field, a Fides data model,
-an action specification, and a colormap. All four entities are activity
-context, but a scientific-source query should not automatically report all four
-as equivalent source data.
+For example, a rendering Activity may use a pressure field as a causal input
+and a Fides data model as context. The data field that drives the visualization
+is a causal input; the Fides model is not a causal-ancestry parent. A colormap
+is not recorded by the current model.
 
 Campaign-authored provenance must distinguish:
 
@@ -796,11 +810,11 @@ derivations={
 }
 ```
 
-An empty input-role list explicitly records that the output has no asserted
-derivation from the activity's logical-variable inputs. Profiles may forbid an
-empty derivation list for selected activity types.
+Each output in an Activity with causal inputs must have at least one selected
+causal parent. A root simulation Activity has no inputs and therefore creates
+no Derivation records for its source variables.
 
-Plans, action specifications, schema documents, guides, and software agents are
+Plans, Activity metadata, schema documents, guides, and software agents are
 not included in the default all-inputs derivation rule. They may still be
 recorded as activity context through PROV Usage or Association. If one of these
 entities genuinely contributes to the identity or content of an output, the
@@ -857,16 +871,18 @@ hpc:coordinateSystem = "boozer"
 
 Do not treat Cartesian, Boozer, cylindrical, or other coordinate systems as units. Version one does not interpret coordinate transformations, axes, handedness, origins, or metric information.
 
-### 16.3 Run profiles and defaults
+### 16.3 Simulation profiles and defaults
 
-A run references one immutable, versioned run profile. The profile may provide default units and coordinate-system strings by variable definition or named output context.
+A future simulation profile may provide defaults for a simulation Activity.
+Profiles are not part of the current authoring API; Activity metadata remains
+optional and searchable.
 
 Recommended initial profile structure:
 
 ```yaml
 schema_version: 1
 
-run_profiles:
+simulation_profiles:
   xgc-boozer-v1:
     code: XGC
 
@@ -893,18 +909,20 @@ run_profiles:
 Resolve metadata in this order:
 
 1. Explicit value on the logical-variable or mesh entity.
-2. Run-specific override.
+2. Simulation-specific override.
 3. Selected output-context value.
-4. Run-profile default.
+4. Simulation-profile default.
 5. Not recorded.
 
-The exported PROV entity should contain the resolved string. A consumer should not need to retrieve the run profile to determine the units recorded for an exported entity.
+The exported PROV Entity should contain the resolved string. A consumer should
+not need to retrieve a future simulation profile to determine the units
+recorded for an exported Entity.
 
 ### 16.5 Profile versioning
 
-- A run references exactly one run profile in version one.
+- A simulation Activity may reference at most one simulation profile if that feature is implemented.
 - Profiles do not inherit from one another in version one.
-- A profile becomes immutable once referenced by a run.
+- A profile becomes immutable once referenced by a simulation Activity.
 - A change creates a new profile name or revision.
 - Store a canonical content hash for verification.
 
@@ -942,26 +960,24 @@ provenance_profile:
         required: [result]
         optional: []
         allow_additional: false
-      action_spec:
-        required: []
-        optional: [method, error_bound, error_bound_type]
-        allow_additional: true
+      metadata:
+        type: object
+        required: false
 
     visualization:
       prov_type: "hpc:Visualization"
       category: presentation
       inputs:
         required: [source]
-        optional: [color, contours, annotation]
+        optional: [color_by, contours, annotation]
         allow_additional: true
       outputs:
         required: [image]
         optional: []
         allow_additional: true
-      action_spec:
-        required: []
-        optional: [colormap]
-        allow_additional: true
+      metadata:
+        type: object
+        required: false
 ```
 
 This syntax is a recommended starting point. Final field names should be settled before coding and then versioned.
@@ -995,7 +1011,7 @@ Recommended type hierarchy:
 hpc:SchemaDocument
 ├── hpc:CampaignProfile
 ├── hpc:ProvenanceProfile
-├── hpc:RunProfile
+├── hpc:SimulationProfile
 ├── hpc:SimulationMetadataProfile
 ├── hpc:VisualizationDataModel
 └── hpc:InterpretationGuide
@@ -1013,7 +1029,7 @@ entity(hpcid:schema_FIDES_UUID_r1, [
     prov:type = hpc:SchemaDocument,
     prov:type = hpc:VisualizationDataModel,
     prov:type = hpc:FidesDataModel,
-    prov:location = "visualization/run-001-fides.json",
+    prov:location = "visualization/simulation-001-fides.json",
     hpc:format = "fides-json",
     hpc:revision = 1,
     hpc:describes = hpcid:dataset_ADIOS_DATASET_UUID
@@ -1125,7 +1141,7 @@ The campaign is the shared scientific workspace. Published campaign content may
 contain both scientific provenance and collaboration records. They use the
 same PROV foundation but distinct HPC types and profiles.
 
-A collaboration event does not automatically become a scientific data-processing activity. A temporary plot, script, or message may remain a collaboration entity. Promotion to a scientific product is explicit and gives the artifact the appropriate logical-variable identity and producing scientific activity.
+A collaboration event does not automatically become a scientific data-processing activity. A temporary plot, script, or message may remain a collaboration entity. Promotion to a scientific product is explicit and gives the artifact the appropriate product Entity type and producing scientific Activity.
 
 ### 20.2 Planned collaboration concepts
 
@@ -1281,7 +1297,7 @@ must move into the initial implementation rather than remain deferred.
 
 Internal partitions may be organized by:
 
-- run
+- simulation Activity
 - workflow execution
 - collaboration session
 - campaign section
@@ -1380,28 +1396,23 @@ Inactive import preserves parseable PROV without requiring campaign graph
 resolution. Explicit activation validates the union of active documents;
 deactivation is rejected when it would leave unresolved active relationships.
 
-### 23.2 Agent, Plan, and run registration
+### 23.2 Agent and Plan registration
 
 ```python
 agent = manager.add_agent("software", "XGC", version="...")
-run_plan = manager.add_plan(
-    "run-001 configuration",
-    location="runs/run-001/input.json",
-)
-run = manager.add_run(
-    name="run-001",
-    plan=run_plan,
-    agent=agent,
+simulation_plan = manager.add_plan(
+    "simulation configuration",
+    location="inputs/simulation-001.json",
 )
 ```
 
-Run-profile selection and default resolution are added in Phase 3.
+The simulation Plan describes the intended configuration. The simulation
+Activity records the execution.
 
 ### 23.3 Variable registration
 
 ```python
 pressure = manager.add_variable(
-    run=run,
     dataset="output",
     variable="P",
     definition="pressure",
@@ -1410,33 +1421,53 @@ pressure = manager.add_variable(
 )
 ```
 
-The Phase 2 API returns the stable PROV `QualifiedName`. Profile-derived
-defaults and primary/preferred-preview discovery bindings are added later;
-omitting units or coordinates in Phase 2 means they are not recorded.
+The API returns the stable PROV `QualifiedName`. Omitting units or coordinates
+means they are not recorded. The Entity has no producer until an Activity
+generates it.
 
 ### 23.4 Activity recording
 
 ```python
-reduced = manager.add_activity(
+reduced_pressure = manager.add_variable(
+    dataset="products",
+    variable="pressure-reduced",
+    definition="pressure",
+)
+reduction = manager.add_activity(
     action="reduction",
     inputs={"source": pressure},
-    outputs={
-        "result": VariableSpec(
-            run="run-001",
-            dataset="products",
-            variable="pressure-reduced",
-            definition="pressure",
-        )
-    },
-    # Omit this for the common all-logical-inputs-to-all-outputs default.
+    outputs={"result": reduced_pressure},
+    # Omit this for the common all-causal-inputs-to-all-outputs default.
     derivations={"result": ["source"]},
-    action_spec={"method": "mgard", "error_bound": 1e-4},
+    metadata={"method": "mgard", "error_bound": 1e-4},
     agent=mgard_agent,
     plan=workflow_plan,
 )
 ```
 
-The helper must create standard PROV entities, activities, usage, generation, agent association, and specification entities atomically.
+Register every output product before calling `add_activity()`. The activity
+call records causal usages, generations, derivations, optional metadata, and
+associations atomically.
+
+Image and video products use their existing dataset Entities directly:
+
+```python
+manager.image("pressure.png", name="pressure-image", store=True)
+image = manager.add_dataset_entity("pressure-image")
+manager.add_activity(
+    "visualization",
+    inputs={"color_by": reduced_pressure},
+    outputs={"image": image},
+)
+```
+
+For an existing registered sequence, use
+`manager.add_visualization_sequence_entity("pressure-frames")` as an Activity
+endpoint. Section 9.5 describes its ordered collection snapshot semantics.
+
+After registration, `manager.dataset_entity("pressure-image")` and
+`manager.visualization_sequence_entity("pressure-frames")` retrieve the existing
+references without writing provenance.
 
 ### 23.5 Agent and schema resources
 
@@ -1449,7 +1480,7 @@ agent = manager.add_agent(
 
 fides_model = manager.add_schema_resource(
     kind="fides_data_model",
-    location="visualization/run-001-fides.json",
+    location="visualization/simulation-001-fides.json",
     describes=[output_dataset],
     as_plan=True,
 )
@@ -1463,7 +1494,7 @@ A dedicated authoring helper is optional in version one. The query layer must un
 
 Required query capabilities:
 
-- Find a logical variable by run, dataset, and variable name.
+- Find a logical variable by dataset and physical variable name.
 - Resolve its stable PROV entity.
 - Find its generating activity, if any.
 - Find immediate inputs and their roles.
@@ -1480,8 +1511,8 @@ cursor. Graph traversals also accept an explicit maximum depth. Defaults are
 bounded and do not include downstream products unless requested.
 
 A variable-definition discovery query should initially return a summary such
-as counts grouped by run, action type, category, and product status. The caller
-then requests one run, logical variable, activity, or page of products. A
+as counts grouped by simulation Activity, action type, category, and product status. The caller
+then requests one simulation Activity, logical variable, activity, or page of products. A
 separate explicit export operation may stream the complete matching graph.
 
 ## 24. End-to-end worked example
@@ -1492,7 +1523,7 @@ This example demonstrates the intended relationships. Identifiers are shortened 
 
 ```text
 entity(xgc_profile, [
-    prov:type = hpc:RunProfile,
+    prov:type = hpc:SimulationProfile,
     prov:location = "profiles/xgc-boozer-v1.yaml"
 ])
 
@@ -1507,10 +1538,10 @@ entity(xgc_guide, [
 ### 24.2 Simulation
 
 ```text
-entity(xgc_run_plan, [
+entity(simulation_plan, [
     prov:type = prov:Plan,
     prov:type = hpc:SimulationConfiguration,
-    prov:location = "runs/run-001/input.json"
+    prov:location = "inputs/simulation-001.json"
 ])
 
 agent(xgc, [
@@ -1519,12 +1550,12 @@ agent(xgc, [
     hpc:version = "..."
 ])
 
-activity(run_001, [
-    prov:type = hpc:SimulationRun,
-    hpc:runProfile = xgc_profile
+activity(simulation_001, [
+    prov:type = hpc:Simulation,
+    prov:label = "simulation-001"
 ])
 
-wasAssociatedWith(run_001, xgc, xgc_run_plan)
+wasAssociatedWith(simulation_001, xgc, simulation_plan)
 ```
 
 ### 24.3 ADIOS output and logical variables
@@ -1534,26 +1565,37 @@ entity(xgc_output, [
     prov:type = hpc:Dataset,
     prov:type = hpc:SimulationOutput,
     prov:label = "output",
-    prov:location = "data/run-001/output.bp",
+    prov:location = "data/simulation-001/output.bp",
     hpc:format = "adios-bp"
 ])
-
-wasGeneratedBy(xgc_output, run_001)
 
 entity(pressure, [
     prov:type = hpc:LogicalVariable,
     hpc:logicalVariableId = "PRESSURE_UUID",
-    hpc:run = run_001,
     hpc:dataset = xgc_output,
     hpc:datasetName = "output",
     hpc:variable = "P",
     hpc:variableDefinition = "pressure",
     hpc:units = "Pa",
     hpc:coordinateSystem = "boozer",
-    prov:location = "data/run-001/output.bp"
+    prov:location = "data/simulation-001/output.bp"
 ])
 
-wasGeneratedBy(pressure, run_001)
+wasGeneratedBy(pressure, simulation_001)
+
+entity(temperature, [
+    prov:type = hpc:LogicalVariable,
+    hpc:logicalVariableId = "TEMPERATURE_UUID",
+    hpc:dataset = xgc_output,
+    hpc:datasetName = "output",
+    hpc:variable = "T",
+    hpc:variableDefinition = "temperature",
+    hpc:units = "eV",
+    hpc:coordinateSystem = "boozer",
+    prov:location = "data/simulation-001/output.bp"
+])
+
+wasGeneratedBy(temperature, simulation_001)
 ```
 
 The ADIOS file may contain code version, input parameters, machine information, and other XGC-specific attributes. HPC Campaign does not copy those fields. `xgc_guide` explains how an AI or tool should discover them.
@@ -1564,7 +1606,7 @@ The ADIOS file may contain code version, input parameters, machine information, 
 entity(fides_model, [
     prov:type = prov:Plan,
     prov:type = hpc:FidesDataModel,
-    prov:location = "visualization/run-001-fides.json",
+    prov:location = "visualization/simulation-001-fides.json",
     hpc:describes = xgc_output
 ])
 ```
@@ -1572,30 +1614,25 @@ entity(fides_model, [
 ### 24.5 Reduction
 
 ```text
-entity(reduction_spec, [
-    prov:type = prov:Plan,
-    prov:type = hpc:ActionSpecification,
-    prov:value = "{\"error_bound\":0.0001,\"method\":\"mgard\"}",
-    hpc:mediaType = "application/json"
-])
-
 agent(mgard, [
     prov:type = prov:SoftwareAgent,
     prov:label = "MGARD"
 ])
 
-activity(reduce_pressure, [prov:type = hpc:Reduction])
+activity(reduce_pressure, [
+    prov:type = hpc:Reduction,
+    hpc:metadata = "{\"error_bound\":0.0001,\"method\":\"mgard\"}"
+])
 
-used(reduce_pressure, pressure,       [prov:role = hpc:source])
-used(reduce_pressure, reduction_spec, [prov:role = hpc:actionSpecification])
-wasAssociatedWith(reduce_pressure, mgard, reduction_spec)
+used(reduce_pressure, pressure, [prov:role = hpc:source])
+wasAssociatedWith(reduce_pressure, mgard, -)
 
 entity(reduced_pressure, [
     prov:type = hpc:LogicalVariable,
     hpc:variableDefinition = "pressure",
     hpc:units = "Pa",
     hpc:coordinateSystem = "boozer",
-    prov:location = "data/run-001/products.bp"
+    prov:location = "data/simulation-001/products.bp"
 ])
 
 wasGeneratedBy(reduced_pressure, reduce_pressure, [prov:role = hpc:result])
@@ -1642,16 +1679,17 @@ agent(paraview, [
 
 activity(render_pressure, [prov:type = hpc:Visualization])
 
-used(render_pressure, reduced_pressure, [prov:role = hpc:color])
+used(render_pressure, reduced_pressure, [prov:role = hpc:color_by])
 used(render_pressure, total_flux,       [prov:role = hpc:annotation])
 used(render_pressure, fides_model,         [prov:role = hpc:dataModel])
-wasAssociatedWith(render_pressure, paraview, fides_model)
+wasAssociatedWith(render_pressure, paraview, -)
 
 entity(pressure_image, [
-    prov:type = hpc:LogicalVariable,
-    prov:type = hpc:ImageSequence,
-    hpc:variableDefinition = "pressure_visualization",
-    prov:location = "visualization/pressure/"
+    prov:type = hpc:Dataset,
+    prov:type = hpc:Image,
+    hpc:datasetUuid = "IMAGE_DATASET_UUID",
+    hpc:format = "IMAGE",
+    prov:location = "visualization/pressure.png"
 ])
 
 wasGeneratedBy(pressure_image, render_pressure, [prov:role = hpc:image])
@@ -1663,7 +1701,7 @@ For every fifth source step, the campaign-specific compact usage/output mapping 
 
 ```yaml
 source_steps:
-  color:
+  color_by:
     start: 0
     count: 200
     stride: 5
@@ -1708,8 +1746,9 @@ From `pressure_image`, the query layer must be able to find:
 - `reduced_pressure`, `total_flux`, and `fides_model` as immediate used entities with roles.
 - `pressure` and `temperature` as transitive source entities.
 - MGARD and ParaView as associated software agents when recorded.
-- `reduction_spec` and `fides_model` as plans/specifications.
-- `run_001` and `xgc_run_plan` as the original simulation execution and plan.
+- optional reduction metadata on the reduction Activity and the Fides model
+  as context.
+- the simulation Activity and `xgc_simulation_plan` as its associated plan.
 - units and coordinate-system strings on each concrete logical variable.
 - conclusions or annotations that cite the image when collaboration records exist.
 
@@ -1727,10 +1766,10 @@ The implementation must maintain these invariants:
 7. Role uniqueness follows the selected profile and initial mapping-based API.
 8. Activity type is allowed for campaign-authored records.
 9. Category is derived from the profile, not independently authored.
-10. Action specifications are valid JSON, immutable, and content-hash verified.
-11. Activity, outputs, uses, specification, derivations, and compact step
+10. Optional Activity metadata is a canonical JSON object.
+11. Activity, outputs, uses, metadata, derivations, and compact step
     mappings are committed atomically.
-12. Campaign-authored logical-variable dependencies have explicit
+12. Campaign-authored product dependencies have explicit
     `wasDerivedFrom` assertions; usage/generation alone is not treated as proof
     of derivation.
 13. Detailed campaign-authored derivations identify their activity,
@@ -1739,9 +1778,17 @@ The implementation must maintain these invariants:
 15. Every logical-variable entity references a dataset entity with a
     resolvable location.
 16. Every active campaign-qualified relationship endpoint resolves within the campaign.
-17. Run profiles and provenance profiles are immutable once used.
-18. Explicit metadata overrides profile defaults deterministically.
+17. Optional Activity metadata is stored directly on its Activity.
+18. Each Activity output has at most one producing Activity.
 19. Unknown imported PROV records are preserved unless an explicit strict operation rejects promotion into the active campaign graph.
+20. The active causal Derivation graph must be acyclic, including links across
+    documents. Usage alone does not imply causality and is excluded from this
+    cycle check.
+21. Qualified Derivations reference actual Generation and Usage records whose
+    Entity and Activity endpoints agree with the Derivation.
+22. Activity authoring resolves products, context, Agents, and Plans across all
+    active documents and bundles. Imported declarations stay in their original
+    documents; inactive imports do not supply authoring references.
 
 ## 26. Test strategy
 
@@ -1758,9 +1805,7 @@ The implementation must maintain these invariants:
 - Accept every allowed initial activity type.
 - Reject unknown campaign-authored types.
 - Warn and preserve unknown imported types.
-- Validate one required action-specification key.
-- Validate multiple required keys.
-- Validate `allow_additional: false`.
+- Validate optional canonical Activity metadata.
 - Validate required and optional roles.
 - Reject category/type inconsistencies by deriving category rather than accepting an authored category.
 
@@ -1783,24 +1828,29 @@ The implementation must maintain these invariants:
 - A mixed graph containing direct and detailed activity records.
 - Root-source and downstream lineage queries.
 - An activity whose outputs derive from different input subsets.
-- Cycle handling or cycle rejection according to the supported profile.
-- Cross-run activity inputs.
+- Atomic rejection of self-cycles and multi-Activity derivation cycles,
+  including cycles spanning active documents.
+- Qualified derivations whose referenced record types, generated/used Entities,
+  or Activities disagree are rejected before activation.
+- New Activities can consume imported products and reference imported context,
+  Agents, and Plans, including declarations in active bundles.
+- Causal inputs from more than one simulation Activity.
 
-### 26.4 Runs and plans
+### 26.4 Simulation Activities and plans
 
-- Simulation run generates source variables.
-- Run references an immutable run profile.
-- Activity uses an action specification.
+- Simulation Activity generates source variables and has no causal inputs.
+- A future simulation profile may provide defaults for an Activity.
+- Optional metadata is stored on the Activity.
 - Activity is associated with an optional software or human agent and plan.
 - Named workflow plan does not become an activity category.
 
 ### 26.5 Units and coordinate systems
 
 - Resolve a units string from a profile.
-- Override units on a run.
+- Override units on a simulation Activity.
 - Override units on a logical variable.
 - Preserve an arbitrary units string exactly.
-- Resolve Boozer versus Cartesian coordinate-system defaults from different run profiles.
+- Resolve Boozer versus Cartesian coordinate-system defaults from different simulation profiles.
 - Export resolved strings on the entity.
 
 ### 26.6 Schema discovery
@@ -1822,8 +1872,7 @@ The implementation must maintain these invariants:
 ### 26.8 Transactions and corruption
 
 - Roll back all generated records if one output fails.
-- Reject malformed action-specification JSON.
-- Detect specification hash mismatch.
+- Reject malformed or non-canonical Activity metadata.
 - Detect missing dataset locations.
 - Rebuild the query index from canonical PROV-JSON.
 
@@ -1832,8 +1881,8 @@ The implementation must maintain these invariants:
 Before finalizing monolithic storage, generate at least the
 representative upper-scale scenario discussed for the roadmap:
 
-- 1,000 runs
-- 100 source variables per run
+- 1,000 simulation Activities
+- 100 source variables per simulation Activity
 - 5 reduced products per source variable
 - 10 QoI products per source variable
 - representative plans, specifications, schemas, and selected visualizations
@@ -1862,8 +1911,9 @@ The size target must not be met by dropping required provenance relationships.
 
 ### Phase 1: dependency and mapping spike
 
-**Status:** Complete on 2026-09-01. See `PROV_MAPPING_SPIKE.md` for the
-prototype, test results, package limitations, and representative measurements.
+**Status:** The current Activity-based model is implemented. See
+`PROV_MAPPING_SPIKE.md` for the mapping, package limitations, and representative
+measurements.
 
 - Add a reviewed dependency on a tested `prov` 3.x version. The spike selected
   `prov >= 3.1.0, < 4`, resolved to 3.1.0 in `poetry.lock`.
@@ -1876,15 +1926,16 @@ prototype, test results, package limitations, and representative measurements.
 
 **Implementation plan:** See `PROV_PHASE2_IMPLEMENTATION_PLAN.md`. Phase 2 is
 complete: the API/storage boundary, ACA 0.8 canonical document storage,
-dataset Entities, Agents, Plans, simulation runs, and stable logical variables
-are complete. Atomic processing Activity authoring is also complete, including
-role-qualified Usage and Generation, explicit qualified Derivation,
-non-lineage context, optional Associations, and content-addressed JSON action
-specifications. Active-import validation, inactive preservation, and explicit
-activation/deactivation are complete. The runnable workflow, benchmark, and
-scale decision are recorded in `PROV_PHASE2_COMPLETION_REPORT.md`.
+dataset Entities, Agents, Plans, simulation Activities, and stable logical
+variables are complete. Activity authoring supports role-qualified Usage and
+Generation, explicit qualified Derivation, non-lineage context, optional
+Associations, and optional JSON metadata stored on each Activity. Active-import
+validation, inactive preservation, and explicit activation/deactivation are
+complete. The runnable workflow, benchmark, and scale decision are recorded in
+`PROV_PHASE2_COMPLETION_REPORT.md`.
 
-- Implement runs as activities.
+- Represent each simulation execution as a root Activity that generates its
+  source variables.
 - Map existing campaign datasets to stable PROV dataset entities.
 - Implement one stable PROV entity per logical variable, including growing
   time-varying products.
@@ -1896,13 +1947,13 @@ scale decision are recorded in `PROV_PHASE2_COMPLETION_REPORT.md`.
 
 - Replace the hard-coded global activity table as the ultimate authority with a versioned campaign provenance profile.
 - Implement action type/category mapping.
-- Implement role rules and action-specification validation.
-- Implement flat, immutable run profiles with units and coordinate-system defaults.
+- Implement role rules and optional Activity metadata validation.
+- Consider flat simulation profiles with units and coordinate-system defaults.
 
 ### Phase 4: scalable storage and query index
 
-- Add bounded canonical PROV documents, initially partitioned by run or a
-  bounded group of runs.
+- Add bounded canonical PROV documents, initially partitioned by Activity or a
+  bounded group of Activities.
 - Add batch authoring so one shard is committed once rather than rewritten
   after every record.
 - Add transparent lossless compression and document-level lazy loading.
@@ -1930,7 +1981,7 @@ scale decision are recorded in `PROV_PHASE2_COMPLETION_REPORT.md`.
 
 ### Phase 7: production-scale validation and tuning
 
-- Re-run the full 1,000-run benchmark with partitioned storage and the query
+- Re-run the full 1,000-simulation benchmark with partitioned storage and the query
   index.
 - Measure bounded summary and detailed-lineage queries, index rebuild, and
   import/export memory.
@@ -1942,12 +1993,12 @@ scale decision are recorded in `PROV_PHASE2_COMPLETION_REPORT.md`.
 The current implementation contains valuable campaign semantics and tests, including:
 
 - stable UUIDs
-- run-qualified variables
+- logical variables with explicit producing Activities
 - variable definitions
 - primary variables and preferred previews
 - atomic activity/output transactions
 - multiple role-qualified inputs and outputs
-- action-specification validation and deduplication
+- Activity metadata validation
 - compact source-step mappings
 - provenance traversal tests
 - complete workflow examples
@@ -1955,9 +2006,9 @@ The current implementation contains valuable campaign semantics and tests, inclu
 These concepts should be retained where consistent with this design.
 
 The existing campaign dataset abstraction is also retained. Each dataset gains
-a stable PROV entity representation so logical variables and native schema
-resources can refer to it directly; this does not introduce a run-owned
-`dataset_run` replacement.
+a stable PROV Entity representation so logical variables and native schema
+resources can refer to it directly; this does not make the dataset a child of
+an Activity.
 
 The following parts require reconsideration:
 
@@ -1991,11 +2042,11 @@ index.
 - Universal role vocabulary
 - Repeated ordered inputs with the same role
 - Profile inheritance
-- Value-type validation for every action-specification field
+- Per-key validation of Activity metadata
 - Unit parsing, conversion, or normalization
 - Coordinate-system interpretation or transformation
 - Workflow-step containment and explicit composite workflow executions
-- Expected variable definitions per run and run completeness validation
+- Expected variable definitions per simulation and simulation completeness validation
 - Cross-campaign references, federation, or parent/child campaign linking
 - Provenance query services and Web dereferencing
 - Full collaboration-record revision history

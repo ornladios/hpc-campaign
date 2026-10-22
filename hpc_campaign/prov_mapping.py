@@ -1,13 +1,7 @@
-"""Phase-one W3C PROV mapping spike for HPC Campaign.
-
-This module deliberately does not integrate PROV storage with ``Manager``.  It
-tests the proposed identifier and relationship mappings in isolation so those
-choices can be reviewed before they become part of the campaign database API.
-"""
+"""W3C PROV vocabulary, identifiers, and a representative graph for HPC Campaign."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import uuid
@@ -74,9 +68,6 @@ class CampaignProvIds:
 
         return self._object("variable", variable_id)
 
-    def run(self, run_id: uuid.UUID | str) -> QualifiedName:
-        return self._object("run", run_id)
-
     def activity(self, activity_id: uuid.UUID | str) -> QualifiedName:
         return self._object("activity", activity_id)
 
@@ -119,7 +110,7 @@ def _example_uuid(campaign_id: uuid.UUID, name: str) -> uuid.UUID:
 
 
 @dataclass(frozen=True)
-class _LogicalVariableSpec:  # pylint: disable=too-many-instance-attributes
+class _LogicalVariableRecord:  # pylint: disable=too-many-instance-attributes
     """Values used to create one stable logical-variable entity."""
 
     # These fields mirror the deliberately explicit logical-variable mapping.
@@ -127,7 +118,6 @@ class _LogicalVariableSpec:  # pylint: disable=too-many-instance-attributes
     # would make the example harder to compare with the design document.
 
     variable_id: uuid.UUID
-    run: QualifiedName
     dataset: QualifiedName
     dataset_name: str
     variable: str
@@ -142,7 +132,6 @@ class _LogicalVariableSpec:  # pylint: disable=too-many-instance-attributes
         attributes: list[tuple[QualifiedName, object]] = [
             (PROV["type"], HPC["LogicalVariable"]),
             (HPC["logicalVariableId"], str(self.variable_id)),
-            (HPC["run"], self.run),
             (HPC["dataset"], self.dataset),
             (HPC["datasetName"], self.dataset_name),
             (HPC["variable"], self.variable),
@@ -166,6 +155,7 @@ class _DerivedActivitySpec:
     outputs: Mapping[str, QualifiedName]
     context: Mapping[str, QualifiedName] = field(default_factory=dict)
     derivations: Mapping[str, tuple[str, ...]] | None = None
+    metadata: Mapping[str, object] | None = None
 
 
 def _add_derived_activity(
@@ -185,7 +175,12 @@ def _add_derived_activity(
         raise ValueError(f"input and context roles must be unique: {', '.join(sorted(duplicate_roles))}")
 
     activity_ref = identifiers.activity(spec.activity_id)
-    document.activity(activity_ref, other_attributes=[(PROV["type"], spec.activity_type)])
+    attributes: list[tuple[QualifiedName, object]] = [(PROV["type"], spec.activity_type)]
+    if spec.metadata is not None:
+        attributes.append(
+            (HPC["metadata"], json.dumps(spec.metadata, sort_keys=True, separators=(",", ":"), allow_nan=False))
+        )
+    document.activity(activity_ref, other_attributes=attributes)
 
     usages = {}
     for role, entity_ref in {**spec.inputs, **spec.context}.items():
@@ -200,14 +195,13 @@ def _add_derived_activity(
 
     generations = {}
     for role, entity_ref in spec.outputs.items():
-        generation_ref = identifiers.generation(spec.activity_id, role)
+        generations[role] = identifiers.generation(spec.activity_id, role)
         document.wasGeneratedBy(
             entity_ref,
             activity_ref,
-            identifier=generation_ref,
+            identifier=generations[role],
             other_attributes=[(PROV["role"], HPC[role])],
         )
-        generations[role] = generation_ref
 
     derivations = spec.derivations
     if derivations is None:
@@ -258,10 +252,9 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
             "reduced-pressure",
             "flux",
             "image",
-            "run",
-            "run-plan",
+            "simulation",
+            "simulation-plan",
             "reduction",
-            "reduction-spec",
             "qoi",
             "visualization",
             "fides-model",
@@ -283,11 +276,10 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
         "temperature": identifiers.variable(object_ids["temperature"]),
         "reduced_pressure": identifiers.variable(object_ids["reduced-pressure"]),
         "flux": identifiers.variable(object_ids["flux"]),
-        "image": identifiers.variable(object_ids["image"]),
-        "run": identifiers.run(object_ids["run"]),
-        "run_plan": identifiers.plan(object_ids["run-plan"]),
+        "image": identifiers.dataset(object_ids["image"]),
+        "simulation": identifiers.activity(object_ids["simulation"]),
+        "simulation_plan": identifiers.plan(object_ids["simulation-plan"]),
         "reduction": identifiers.activity(object_ids["reduction"]),
-        "reduction_spec": identifiers.plan(object_ids["reduction-spec"]),
         "qoi": identifiers.activity(object_ids["qoi"]),
         "visualization": identifiers.activity(object_ids["visualization"]),
         "fides_model": identifiers.plan(object_ids["fides-model"]),
@@ -303,11 +295,11 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
     }
 
     document.entity(
-        refs["run_plan"],
+        refs["simulation_plan"],
         [
             (PROV["type"], PROV["Plan"]),
             (PROV["type"], HPC["SimulationConfiguration"]),
-            (PROV["location"], "runs/run-001/input.json"),
+            (PROV["location"], "inputs/simulation-001.json"),
         ],
     )
     document.agent(
@@ -315,10 +307,10 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
         [(PROV["type"], PROV["SoftwareAgent"]), (PROV["label"], "XGC")],
     )
     document.activity(
-        refs["run"],
-        other_attributes=[(PROV["type"], HPC["SimulationRun"]), (PROV["label"], "run-001")],
+        refs["simulation"],
+        other_attributes=[(PROV["type"], HPC["Simulation"]), (PROV["label"], "simulation-001")],
     )
-    document.wasAssociatedWith(refs["run"], refs["xgc_agent"], refs["run_plan"])
+    document.wasAssociatedWith(refs["simulation"], refs["xgc_agent"], refs["simulation_plan"])
 
     document.entity(
         refs["dataset"],
@@ -327,14 +319,8 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
             (PROV["type"], HPC["SimulationOutput"]),
             (PROV["label"], "output"),
             (HPC["format"], "adios-bp"),
-            (PROV["location"], "data/run-001/output.bp"),
+            (PROV["location"], "data/simulation-001/output.bp"),
         ],
-    )
-    document.wasGeneratedBy(
-        refs["dataset"],
-        refs["run"],
-        identifier=identifiers.generation(object_ids["run"], "dataset"),
-        other_attributes=[(PROV["role"], HPC["dataset"])],
     )
 
     for name, physical_name, definition, units in (
@@ -343,22 +329,21 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
     ):
         document.entity(
             refs[name],
-            _LogicalVariableSpec(
+            _LogicalVariableRecord(
                 variable_id=object_ids[name],
-                run=refs["run"],
                 dataset=refs["dataset"],
                 dataset_name="output",
                 variable=physical_name,
                 definition=definition,
-                location="data/run-001/output.bp",
+                location="data/simulation-001/output.bp",
                 units=units,
                 coordinate_system="boozer",
             ).attributes(),
         )
         document.wasGeneratedBy(
             refs[name],
-            refs["run"],
-            identifier=identifiers.generation(object_ids["run"], name),
+            refs["simulation"],
+            identifier=identifiers.generation(object_ids["simulation"], name),
             other_attributes=[(PROV["role"], HPC[name])],
         )
 
@@ -368,36 +353,24 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
             (PROV["type"], PROV["Plan"]),
             (PROV["type"], HPC["SchemaDocument"]),
             (PROV["type"], HPC["FidesDataModel"]),
-            (PROV["location"], "visualization/run-001-fides.json"),
+            (PROV["location"], "visualization/simulation-001-fides.json"),
             (HPC["describes"], refs["dataset"]),
         ],
     )
 
-    specification = json.dumps({"error_bound": 0.0001, "method": "mgard"}, sort_keys=True, separators=(",", ":"))
-    document.entity(
-        refs["reduction_spec"],
-        [
-            (PROV["type"], PROV["Plan"]),
-            (PROV["type"], HPC["ActionSpecification"]),
-            (PROV["value"], specification),
-            (HPC["mediaType"], "application/json"),
-            (HPC["sha256"], hashlib.sha256(specification.encode("utf-8")).hexdigest()),
-        ],
-    )
     document.agent(
         refs["mgard_agent"],
         [(PROV["type"], PROV["SoftwareAgent"]), (PROV["label"], "MGARD")],
     )
     document.entity(
         refs["reduced_pressure"],
-        _LogicalVariableSpec(
+        _LogicalVariableRecord(
             variable_id=object_ids["reduced-pressure"],
-            run=refs["run"],
             dataset=refs["dataset"],
             dataset_name="products",
             variable="pressure-reduced",
             definition="pressure",
-            location="data/run-001/products.bp",
+            location="data/simulation-001/products.bp",
             units="Pa",
             coordinate_system="boozer",
         ).attributes(),
@@ -410,21 +383,20 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
             activity_type=HPC["Reduction"],
             inputs={"source": refs["pressure"]},
             outputs={"result": refs["reduced_pressure"]},
-            context={"action_specification": refs["reduction_spec"]},
+            metadata={"error_bound": 0.0001, "method": "mgard"},
         ),
     )
-    document.wasAssociatedWith(refs["reduction"], refs["mgard_agent"], refs["reduction_spec"])
+    document.wasAssociatedWith(refs["reduction"], refs["mgard_agent"])
 
     document.entity(
         refs["flux"],
-        _LogicalVariableSpec(
+        _LogicalVariableRecord(
             variable_id=object_ids["flux"],
-            run=refs["run"],
             dataset=refs["dataset"],
             dataset_name="products",
             variable="flux",
             definition="flux",
-            location="data/run-001/products.bp",
+            location="data/simulation-001/products.bp",
             units="kg/(m^2 s)",
             coordinate_system="boozer",
         ).attributes(),
@@ -446,16 +418,14 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
     )
     document.entity(
         refs["image"],
-        _LogicalVariableSpec(
-            variable_id=object_ids["image"],
-            run=refs["run"],
-            dataset=refs["dataset"],
-            dataset_name="visualizations",
-            variable="pressure-flux",
-            definition="pressure_visualization",
-            location="visualization/pressure/",
-        ).attributes()
-        + [(PROV["type"], HPC["ImageSequence"])],
+        [
+            (PROV["type"], HPC["Dataset"]),
+            (PROV["type"], HPC["Image"]),
+            (PROV["label"], "pressure-flux"),
+            (HPC["datasetUuid"], str(object_ids["image"])),
+            (HPC["format"], "IMAGE"),
+            (PROV["location"], "visualization/pressure.png"),
+        ],
     )
     _add_derived_activity(
         document,
@@ -463,7 +433,7 @@ def build_pressure_workflow_example(campaign_id: uuid.UUID | str) -> ExampleProv
         _DerivedActivitySpec(
             activity_id=object_ids["visualization"],
             activity_type=HPC["Visualization"],
-            inputs={"color": refs["reduced_pressure"], "annotation": refs["flux"]},
+            inputs={"color_by": refs["reduced_pressure"], "annotation": refs["flux"]},
             outputs={"image": refs["image"]},
             context={"data_model": refs["fides_model"]},
         ),

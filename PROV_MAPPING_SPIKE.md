@@ -1,179 +1,112 @@
-# W3C PROV Mapping Spike Results
+# W3C PROV Mapping
 
-**Status:** Phase 1 complete
+**Status:** The mapping is integrated with the campaign provenance API.
 
-**Date:** 2026-09-01; updated 2026-09-02 for stable time-varying entities
+This note describes the current mapping used by `Manager`. The implementation
+is shared between the public API, validation, examples, and the representative
+graph builder in `hpc_campaign/prov_mapping.py`.
 
-## Purpose
+## Stable identifiers
 
-This spike validates the central mappings in
-`PROV_CAMPAIGN_SCHEMA_DESIGN.md` before PROV storage or indexing is integrated
-with `Manager`. It is intentionally isolated from the production campaign
-database and public API.
-
-## Dependency result
-
-- Added `prov >= 3.1.0, < 4` as a runtime dependency.
-- `poetry.lock` resolves the dependency to `prov 3.1.0`.
-- No optional RDF, XML, graph, or plotting extras are enabled.
-- The package requires Python 3.10 or newer, matching HPC Campaign's declared
-  `requires-python = ">=3.10"` range.
-- The spike was executed locally with Python 3.14.7. The existing CI uses
-  Python 3.13; CI remains the verification point for that supported runtime.
-
-The lockfile change adds only `prov`; it does not update unrelated locked
-packages.
-
-## Prototype artifacts
-
-- `hpc_campaign/prov_mapping.py`
-  - Creates stable campaign-qualified PROV identifiers from UUIDs.
-  - Uses one stable identity for each growing logical-variable entity.
-  - Identifies Usage, Generation, and Derivation relationships.
-  - Builds a representative simulation-to-investigation `ProvDocument`.
-  - Keeps scientific derivation inputs separate from activity context.
-- `tests/test_prov_mapping.py`
-  - Exercises identifier stability and validation.
-  - Verifies logical variables have no revision suffix or attribute.
-  - Verifies exact PROV-JSON round trips.
-  - Verifies qualified derivation endpoints and roles.
-  - Verifies preservation of unknown domain-specific activity types.
-  - Verifies Fides usage without incorrectly making Fides scientific lineage.
-  - Verifies AI activity association, human conclusion attribution, and
-    evidence relationships.
-
-Nothing in this spike is exported from `hpc_campaign.__init__`, and `Manager`
-does not read or write these records yet.
-
-## Validated mapping decisions
-
-### Stable identifiers
-
-The prototype uses one object namespace per campaign:
+Each campaign has a UUID and a campaign-qualified identifier namespace:
 
 ```text
 urn:hpc-campaign:CAMPAIGN_UUID:
 ```
 
-Object UUIDs remain stable while the qualified-name prefix distinguishes the
-kind of record:
+Campaign objects use stable UUIDs. Usage, Generation, and Derivation records
+are qualified by the Activity and role names they describe. The
+`CampaignProvIds` helper is the sole constructor for these identifiers.
 
 ```text
-hpcid:dataset_UUID
-hpcid:variable_UUID
-hpcid:run_UUID
-hpcid:activity_UUID
+hpcid:dataset_DATASET_UUID
+hpcid:variable_VARIABLE_UUID
+hpcid:activity_ACTIVITY_UUID
 hpcid:usage_ACTIVITY_UUID_ROLE
 hpcid:generation_ACTIVITY_UUID_ROLE
 hpcid:derivation_ACTIVITY_UUID_OUTPUTROLE_INPUTROLE
 ```
 
-This works with `prov 3.1.0` and survives PROV-JSON serialization. The exact
-vocabulary and identifier spelling remain provisional until the corresponding
-open decisions in the design document are closed.
+There is no separate execution object. A simulation is an Activity, and a
+logical variable has no intrinsic simulation or producer field.
 
-### Growing logical variables
+## Entities and Activities
 
-The prototype uses one PROV Entity and one stable qualified name for each
-logical variable. A time-varying variable or image sequence keeps that identity
-while the underlying dataset gains timesteps or members. Ordinary appends do
-not create revision attributes, new entities, new Generation records, or new
-Derivation records.
+`Manager.add_variable()` registers one stable logical-variable Entity backed
+by an existing campaign dataset. It records the dataset, physical variable
+name, scientific definition, location, and optional units and coordinate
+system. It does not create a producer relationship.
 
-This deliberately omits provenance for the exact timestep range visible at a
-particular historical instant. A scientifically distinct replacement or
-transformed product receives a new logical-variable UUID and normal PROV
-Generation and Derivation relationships. Snapshot and timestep-specific
-provenance are deferred.
+`Manager.add_activity()` accepts role-to-Entity mappings for causal inputs and
+already-registered output products. It records identified Usage and
+Generation relations and qualified Derivations. Each Entity may have at most
+one producing Activity. When no explicit derivation map is supplied, every
+output is derived from every causal input. Use `derivations=` when the
+output/input relationships differ.
 
-### Detailed derivation
+Reference resolution includes all active documents and their bundles. New
+Activities may use imported products, context, Agents, and Plans without
+copying their declarations into the authored document. Inactive imports are
+excluded. Producer uniqueness and identifier checks use the active graph too.
 
-Campaign-authored dependencies can use the full qualified PROV derivation:
+Active Derivations must be acyclic, including links across documents. Usage
+alone is not treated as a causal edge, so context is excluded from this check.
+Qualified Derivations must reference actual Generation and Usage records whose
+Entity and Activity endpoints match the Derivation, including when these
+records are declared in other active documents.
+Incomplete imported relationships may omit details; explicitly supplied
+endpoints must agree, and references must have the correct record types.
 
-```text
-wasDerivedFrom(derivation; output, input, activity, generation, usage)
-```
+A source simulation has no causal inputs. Its output variables are registered
+first, then generated by a `simulation` Activity. Reduction, QoI, and
+visualization inputs are causal and carry Activity-relative PROV roles, such
+as `source` or `color_by`. Plans and configuration can be recorded as context
+and are excluded from causal ancestry.
 
-The package preserves the references to the exact role-qualified Usage and
-Generation records. This is sufficient to distinguish the dependencies of
-multiple outputs from multiple inputs without a custom provenance edge model.
+`Manager.add_dataset_entity(name)` registers an existing dataset with its stable
+dataset UUID. IMAGE and VIDEO datasets also carry `hpc:Image` and `hpc:Video`
+types respectively. Activities can use and generate these product Entities
+directly; images and videos are not logical variables.
 
-### Activity context versus lineage
+`Manager.add_visualization_sequence_entity(name)` creates or reuses a stored
+collection snapshot typed `prov:Collection`, `hpc:VisualizationSequence`, and
+either `hpc:ImageSequence` or `hpc:VideoSequence`. Standard `hadMember` records
+identify unique members. The canonical JSON list in `hpc:memberOrder` stores
+their dataset UUIDs in display order, including repeated members. The
+collection receives a UUID stored in canonical PROV. Changed ordered
+membership creates a new snapshot without changing earlier provenance. No ACA
+table migration is needed. Membership alone asserts neither member generation
+nor member derivation.
 
-The visualization example records a Fides model as an entity used with the
-`data_model` role. The rendered image has explicit derivations from the
-scientific color and annotation inputs, but not from the Fides entity. This
-confirms that activity dataflow/context and entity lineage can remain separate
-as required by PROV-DM.
+`Manager.dataset_entity(name)` and `Manager.visualization_sequence_entity(name)`
+are read-only lookups over active documents. Missing declarations or a missing
+snapshot for the current ordered membership raise `LookupError`; lookup never
+registers or refreshes records. Registration is idempotent: unchanged `add_*`
+calls return the stored reference without serializing, validating a write, or
+changing the document timestamp. Explicit dataset registration may refresh
+replica locations; explicit sequence registration records changed membership
+as a new snapshot.
 
-### Extensible types
+Optional Activity metadata is stored on the Activity as canonical JSON. The
+metadata is descriptive; it is not modeled as a separate Entity or Plan.
+Agents and Plans may be associated with an Activity when they are known.
 
-An activity with the unrecognized type `hpc:DomainSpecificOperation` survives
-the complete PROV-JSON round trip. A future campaign profile can warn about or
-decline to index the type without discarding the underlying PROV record.
+## Representative graph
 
-### Plans, agents, and investigation records
+The graph builder `build_pressure_workflow_example()` creates a simulation
+Activity that generates pressure and temperature, followed by reduction, QoI,
+and visualization Activities. The visualization records `color_by` and
+`annotation` causal inputs, while the Fides data model is context. Its
+output is an image dataset Entity. Its Derivations trace through scientific
+products and Activities.
 
-The representative graph includes:
+The helper also includes a later AI comparison and a human-attributed
+conclusion to exercise ordinary PROV associations and attribution. Unfamiliar
+valid PROV types remain preservable when they satisfy active-document
+validation.
 
-- an XGC simulation activity associated with a software agent and input plan;
-- a reduction associated with MGARD and a prescriptive action specification;
-- a visualization associated with ParaView and a Fides plan;
-- an AI comparison activity using a question and image as inputs; and
-- a conclusion attributed to a human agent.
+## Verification
 
-## Representative measurement
-
-The current example contains 50 PROV records:
-
-| Record | Count |
-|---|---:|
-| Entity | 11 |
-| Activity | 6 |
-| Agent | 5 |
-| Usage | 9 |
-| Generation | 7 |
-| Derivation | 7 |
-| Association | 4 |
-| Attribution | 1 |
-
-On the local Python 3.14.7 environment, measured across 100 iterations:
-
-| Measurement | Result |
-|---|---:|
-| PROV-JSON size | 13,881 bytes |
-| gzip-compressed size | 2,208 bytes |
-| Median graph construction | 0.460 ms |
-| Median serialization | 0.308 ms |
-| Median deserialization | 0.616 ms |
-
-These numbers validate basic mechanics only. They are not a substitute for the
-1,000-run scale test required by Section 26.9 of the design document.
-
-## Package limitations confirmed
-
-- PROV-JSON is the dependency-light round-trip format.
-- PROV-N can be generated for diagnostics, but `prov 3.1.0` raises
-  `NotImplementedError` when asked to deserialize PROV-N.
-- `ProvDocument` is an in-memory model. The production implementation must not
-  assume that a large campaign can always be loaded as one document.
-- Parsing and round-trip equality do not provide complete W3C
-  PROV-CONSTRAINTS validation. Campaign validation remains a separate layer.
-
-## Verification commands
-
-```bash
-poetry run pytest tests/test_prov_mapping.py -q
-poetry run ruff check hpc_campaign/prov_mapping.py tests/test_prov_mapping.py
-poetry run ruff format --check hpc_campaign/prov_mapping.py tests/test_prov_mapping.py
-poetry run mypy hpc_campaign/prov_mapping.py --check-untyped-defs
-poetry run pylint hpc_campaign/prov_mapping.py
-```
-
-## Phase 2 boundary
-
-The spike supports proceeding to the canonical scientific core, subject to
-review of the provisional namespace and identifier spelling. Phase 2 would
-integrate PROV entities and relationships with campaign datasets, runs, and
-logical variables; define atomic storage behavior; and make the SQLite schema
-a rebuildable query index. Those changes are not part of this spike.
+Focused mapping coverage lives in `tests/test_prov_mapping.py`. The tests
+check stable identifiers, serialization round trips, causal roles, exact
+qualified Derivations, Activity metadata, and responsibility relations.

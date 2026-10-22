@@ -3,12 +3,11 @@
 The public ``Manager`` methods delegate here so W3C PROV construction,
 campaign validation, and canonical-document replacement remain out of the
 already large manager implementation. It covers the Phase 2 scientific core:
-datasets, Agents, Plans, runs, logical variables, and processing Activities.
+datasets, Agents, Plans, logical variables, and Activities.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import uuid
@@ -19,16 +18,16 @@ from types import MappingProxyType
 
 from prov.model import (
     PROV,
-    ProvActivity,
     ProvAgent,
     ProvDocument,
     ProvEntity,
+    ProvGeneration,
     ProvRecord,
     QualifiedName,
 )
 
 from .prov_mapping import HPC, CampaignProvIds
-from .prov_store import ProvDocumentInfo, ProvStore
+from .prov_store import DEFAULT_PROV_DOCUMENT_NAME, ProvDocumentInfo, ProvenanceStorageError, ProvStore
 
 
 @dataclass(frozen=True)
@@ -54,30 +53,11 @@ class _LogicalVariableDescription:
 
 
 @dataclass(frozen=True)
-class VariableSpec:
-    """Describe one logical-variable output created by an Activity.
-
-    The referenced run and dataset determine the output's campaign context and
-    physical storage. ``variable`` is the name used by that dataset, while
-    ``definition`` is the shared scientific concept recorded by the campaign.
-    """
-
-    run: QualifiedName
-    dataset: str
-    variable: str
-    definition: str
-    variable_id: uuid.UUID | None = None
-    units: str | None = None
-    coordinate_system: str | None = None
-
-
-@dataclass(frozen=True)
 class ActivityResult:
     """Stable PROV references produced by :meth:`Manager.add_activity`."""
 
     activity: QualifiedName
     outputs: Mapping[str, QualifiedName]
-    action_specification: QualifiedName | None = None
 
     def __post_init__(self) -> None:
         # Do not expose a mutable dictionary from an otherwise frozen result.
@@ -93,15 +73,14 @@ class CampaignProvenance:
         "organization": PROV["Organization"],
         "instrument": HPC["Instrument"],
     }
-    # This deliberately small vocabulary is the first campaign authoring
-    # profile. Imported PROV may contain additional valid Activity types.
+    # Imported PROV may contain additional valid Activity types.
     _ACTIVITY_TYPES = {
+        "simulation": HPC["Simulation"],
         "reduction": HPC["Reduction"],
         "projection": HPC["Projection"],
         "quantity_of_interest": HPC["QuantityOfInterest"],
         "visualization": HPC["Visualization"],
     }
-    _ACTION_SPECIFICATION_ROLE = "action_specification"
 
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
@@ -166,57 +145,19 @@ class CampaignProvenance:
         self._commit(info, document)
         return reference
 
-    def add_run(
-        self,
-        name: str,
-        *,
-        run_id: uuid.UUID | None = None,
-        plan: QualifiedName | None = None,
-        agent: QualifiedName | None = None,
-    ) -> QualifiedName:
-        """Create one simulation execution and its optional association."""
-
-        label = self._required_string(name, "run name")
-        resolved_id = self._optional_uuid(run_id, "run_id")
-
-        info, document, identifiers = self._load_authored_document()
-        reference = identifiers.run(resolved_id)
-        self._require_unused_identifier(document, reference)
-        self._require_unique_run_name(document, label)
-
-        if plan is not None:
-            self._require_campaign_reference(identifiers, plan, "plan")
-            self._require_record(document, plan, ProvEntity, PROV["Plan"], "plan")
-        if agent is not None:
-            self._require_campaign_reference(identifiers, agent, "agent")
-            self._require_record(document, agent, ProvAgent, None, "agent")
-
-        document.activity(
-            reference,
-            other_attributes=[(PROV["type"], HPC["SimulationRun"]), (PROV["label"], label)],
-        )
-        if plan is not None or agent is not None:
-            document.wasAssociatedWith(reference, agent, plan)
-        self._commit(info, document)
-        return reference
-
     def add_variable(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         *,
-        run: QualifiedName,
         dataset: str,
         variable: str,
         definition: str,
         variable_id: uuid.UUID | None = None,
         units: str | None = None,
         coordinate_system: str | None = None,
-        generated_by_run: bool = True,
     ) -> QualifiedName:
         """Create one stable logical-variable Entity backed by an ACA dataset."""
 
         dataset_name = self._required_string(dataset, "dataset")
-        if not isinstance(generated_by_run, bool):
-            raise TypeError("generated_by_run must be a bool")
         description = _LogicalVariableDescription(
             variable_id=self._optional_uuid(variable_id, "variable_id"),
             physical_name=self._required_string(variable, "variable"),
@@ -230,80 +171,201 @@ class CampaignProvenance:
         )
 
         info, document, identifiers = self._load_authored_document()
-        self._require_campaign_reference(identifiers, run, "run")
-        self._require_record(document, run, ProvActivity, HPC["SimulationRun"], "run")
         dataset_description = self._resolve_dataset(dataset_name)
-        dataset_reference = self._ensure_dataset_entity(document, identifiers, dataset_description)
+        dataset_reference, _ = self._ensure_dataset_entity(document, identifiers, dataset_description)
         reference = self._add_logical_variable_entity(
             document,
             identifiers,
-            run,
             dataset_description,
             dataset_reference,
             description,
         )
-        if generated_by_run:
-            self._add_run_generation(document, identifiers, run, reference, description.definition)
-
         self._commit(info, document)
         return reference
+
+    def add_dataset_entity(self, name: str) -> QualifiedName:
+        """Register a typed dataset Entity, writing only if its declaration changes."""
+
+        dataset = self._resolve_dataset(self._required_string(name, "dataset name"))
+        identifiers = CampaignProvIds(self.store.campaign_uuid())
+        references = self._active_reference_document()
+        reference = identifiers.dataset(dataset.dataset_uuid)
+        already_registered = bool(references.get_record(reference))
+        reference, changed = self._ensure_dataset_entity(references, identifiers, dataset)
+        if not changed:
+            return reference
+        info, document, identifiers = self._load_authored_document()
+        if already_registered and not document.get_record(reference):
+            raise ValueError(f"dataset registration conflicts with an imported Entity: {reference}")
+        reference, changed = self._ensure_dataset_entity(document, identifiers, dataset)
+        if changed:
+            self._commit(info, document)
+        return reference
+
+    def dataset_entity(self, name: str) -> QualifiedName:
+        """Look up an active dataset Entity without creating or updating records."""
+
+        dataset = self._resolve_dataset(self._required_string(name, "dataset name"))
+        reference = CampaignProvIds(self.store.campaign_uuid()).dataset(dataset.dataset_uuid)
+        references = self._active_reference_document()
+        if not references.get_record(reference):
+            raise LookupError(f"dataset Entity not registered: {name}; use add_dataset_entity()")
+        self._require_record(references, reference, ProvEntity, HPC["Dataset"], "dataset Entity")
+        return reference
+
+    def add_visualization_sequence_entity(self, name: str) -> QualifiedName:
+        """Register the current ordered membership, reusing an unchanged snapshot."""
+
+        name = self._required_string(name, "sequence name")
+        datasets, member_order = self._resolve_visualization_sequence(name)
+        references = self._active_reference_document()
+        reference = self._find_sequence_entity(references, name, member_order)
+        if reference is not None:
+            return reference
+
+        info, document, identifiers = self._load_authored_document()
+        members = []
+        for dataset in datasets:
+            member = identifiers.dataset(dataset.dataset_uuid)
+            if document.get_record(member) or not references.get_record(member):
+                member, _ = self._ensure_dataset_entity(document, identifiers, dataset)
+            else:
+                member, changed = self._ensure_dataset_entity(references, identifiers, dataset)
+                if changed:
+                    raise ValueError(f"dataset registration conflicts with an imported Entity: {member}")
+            members.append(member)
+        reference = identifiers.entity(uuid.uuid4())
+        sequence_type = HPC["ImageSequence"] if datasets[0].file_format == "IMAGE" else HPC["VideoSequence"]
+        document.entity(
+            reference,
+            [
+                (PROV["type"], PROV["Collection"]),
+                (PROV["type"], HPC["VisualizationSequence"]),
+                (PROV["type"], sequence_type),
+                (PROV["label"], name),
+                (HPC["sequenceName"], name),
+                (HPC["memberOrder"], member_order),
+            ],
+        )
+        for member in dict.fromkeys(members):
+            document.hadMember(reference, member)
+        self._commit(info, document)
+        return reference
+
+    def visualization_sequence_entity(self, name: str) -> QualifiedName:
+        """Look up the registered current snapshot, without creating one."""
+
+        name = self._required_string(name, "sequence name")
+        _, member_order = self._resolve_visualization_sequence(name)
+        reference = self._find_sequence_entity(self._active_reference_document(), name, member_order)
+        if reference is None:
+            raise LookupError(
+                f"sequence snapshot not registered for current membership: {name}; "
+                "use add_visualization_sequence_entity()"
+            )
+        return reference
+
+    def _resolve_visualization_sequence(self, name: str) -> tuple[list[_DatasetDescription], str]:
+        if not self.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'visualization_sequence'"
+        ).fetchone():
+            raise LookupError(f"visualization sequence not found: {name}")
+        sequence = self.connection.execute(
+            "SELECT visid FROM visualization_sequence WHERE name = ?", (name,)
+        ).fetchone()
+        if sequence is None:
+            raise LookupError(f"visualization sequence not found: {name}")
+        rows = self.connection.execute(
+            "SELECT i.item_uuid, d.name FROM visualization_item AS i "
+            "LEFT JOIN dataset AS d ON d.uuid = i.item_uuid AND d.deltime = 0 "
+            "WHERE i.visid = ? ORDER BY i.item_order",
+            (sequence[0],),
+        ).fetchall()
+        if not rows or any(row["name"] is None for row in rows):
+            raise ValueError("sequence must contain live image or video datasets")
+        datasets = [self._resolve_dataset(row["name"]) for row in rows]
+        formats = {dataset.file_format for dataset in datasets}
+        if formats not in ({"IMAGE"}, {"VIDEO"}):
+            raise ValueError("sequence must contain only images or only videos")
+        member_order = json.dumps([str(dataset.dataset_uuid) for dataset in datasets], separators=(",", ":"))
+
+        return datasets, member_order
+
+    @staticmethod
+    def _find_sequence_entity(document: ProvDocument, name: str, member_order: str) -> QualifiedName | None:
+        for record in document.get_records(ProvEntity):
+            if (
+                HPC["VisualizationSequence"] in record.get_asserted_types()
+                and record.get_attribute(HPC["sequenceName"]) == {name}
+                and record.get_attribute(HPC["memberOrder"]) == {member_order}
+            ):
+                return record.identifier
+        return None
 
     def add_activity(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         action: str,
         *,
-        inputs: Mapping[str, QualifiedName],
-        outputs: Mapping[str, VariableSpec],
+        inputs: Mapping[str, QualifiedName] | None = None,
+        outputs: Mapping[str, QualifiedName],
+        name: str | None = None,
         derivations: Mapping[str, Sequence[str]] | None = None,
         context: Mapping[str, QualifiedName] | None = None,
-        action_spec: Mapping[str, object] | None = None,
+        metadata: Mapping[str, object] | None = None,
         agent: QualifiedName | None = None,
         plan: QualifiedName | None = None,
         activity_id: uuid.UUID | None = None,
     ) -> ActivityResult:
-        """Create one processing Activity and its qualified PROV relations.
+        """Create one Activity, using and generating existing product Entities.
 
-        ``inputs`` are scientific lineage inputs. ``context`` records Entities
-        used by the Activity without making them derivation parents. Unless an
-        explicit ``derivations`` map is supplied, every output is derived from
-        every scientific input.
+        ``inputs`` lists causal data products. ``context`` records other
+        Entities used by the Activity without making them causal ancestors.
+        Unless ``derivations`` is supplied, every output is derived from every
+        causal input.
         """
 
         activity_type = self._activity_type(action)
         resolved_activity_id = self._optional_uuid(activity_id, "activity_id")
-        input_map = self._validated_role_mapping(inputs, "inputs", require_values=True)
+        activity_name = self._optional_string(name, "activity name")
+        input_map = self._validated_role_mapping(
+            inputs if inputs is not None else {},
+            "inputs",
+            require_values=False,
+        )
         output_map = self._validated_output_mapping(outputs)
         context_map = self._validated_role_mapping(context or {}, "context", require_values=False)
         duplicate_roles = set(input_map).intersection(context_map)
         if duplicate_roles:
             raise ValueError("input and context roles must be unique: " + ", ".join(sorted(duplicate_roles)))
-        if self._ACTION_SPECIFICATION_ROLE in input_map or self._ACTION_SPECIFICATION_ROLE in context_map:
-            raise ValueError(f"role {self._ACTION_SPECIFICATION_ROLE!r} is reserved")
+        if set(input_map.values()).intersection(output_map.values()):
+            raise ValueError("an Activity must generate a new product instead of reusing an input Entity")
         derivation_map = self._validated_derivations(derivations, input_map, output_map)
-        canonical_spec = self._canonical_action_specification(action_spec)
+        canonical_metadata = self._canonical_metadata(metadata)
 
         info, document, identifiers = self._load_authored_document()
+        references = self._active_reference_document(info, document)
         activity_reference = identifiers.activity(resolved_activity_id)
-        self._require_unused_identifier(document, activity_reference)
-        self._require_logical_inputs(document, identifiers, input_map)
-        self._require_context(document, identifiers, context_map)
-        self._require_optional_association_records(document, identifiers, agent, plan)
+        self._require_unused_identifier(references, activity_reference)
+        self._require_products(references, identifiers, input_map, "input")
+        self._require_products(references, identifiers, output_map, "output")
+        self._require_context(references, identifiers, context_map)
+        self._require_optional_association_records(references, identifiers, agent, plan)
+        for output in output_map.values():
+            if self._entity_has_generation(references, output):
+                raise ValueError(f"output Entity already has a producing Activity: {output}")
 
-        document.activity(activity_reference, other_attributes=[(PROV["type"], activity_type)])
+        activity_attributes: list[tuple[QualifiedName, object]] = [(PROV["type"], activity_type)]
+        if activity_name is not None:
+            activity_attributes.append((PROV["label"], activity_name))
+        if canonical_metadata is not None:
+            activity_attributes.append((HPC["metadata"], canonical_metadata))
+        document.activity(activity_reference, other_attributes=activity_attributes)
         usage_references = self._add_usages(
             document,
             identifiers,
             resolved_activity_id,
             activity_reference,
             {**input_map, **context_map},
-        )
-        action_specification = self._add_action_specification(
-            document,
-            identifiers,
-            resolved_activity_id,
-            activity_reference,
-            canonical_spec,
-            usage_references,
         )
         output_references, generation_references = self._add_activity_outputs(
             document,
@@ -327,13 +389,12 @@ class CampaignProvenance:
             document.wasAssociatedWith(activity_reference, agent, plan)
 
         self._commit(info, document)
-        return ActivityResult(activity_reference, output_references, action_specification)
+        return ActivityResult(activity_reference, output_references)
 
     @staticmethod
     def _add_logical_variable_entity(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         document: ProvDocument,
         identifiers: CampaignProvIds,
-        run: QualifiedName,
         dataset: _DatasetDescription,
         dataset_reference: QualifiedName,
         description: _LogicalVariableDescription,
@@ -343,7 +404,6 @@ class CampaignProvenance:
         attributes: list[tuple[QualifiedName, object]] = [
             (PROV["type"], HPC["LogicalVariable"]),
             (HPC["logicalVariableId"], str(description.variable_id)),
-            (HPC["run"], run),
             (HPC["dataset"], dataset_reference),
             (HPC["datasetName"], dataset.name),
             (HPC["variable"], description.physical_name),
@@ -358,44 +418,23 @@ class CampaignProvenance:
         return reference
 
     @staticmethod
-    def _add_run_generation(
+    def _require_products(
         document: ProvDocument,
         identifiers: CampaignProvIds,
-        run: QualifiedName,
-        variable: QualifiedName,
-        definition: str,
+        products: Mapping[str, QualifiedName],
+        label: str,
     ) -> None:
-        run_id = CampaignProvenance._reference_uuid(run, "run")
-        generation_reference = identifiers.generation(run_id, definition)
-        if document.get_record(generation_reference):
-            raise ValueError(
-                f"run already has a generated variable with definition role {definition!r}; "
-                "set generated_by_run=False for an additional alias or derived product"
-            )
-        document.wasGeneratedBy(
-            variable,
-            run,
-            identifier=generation_reference,
-            other_attributes=[(PROV["role"], HPC[definition])],
-        )
+        """Require causal endpoints to be local data products, excluding Plans."""
 
-    @staticmethod
-    def _require_logical_inputs(
-        document: ProvDocument,
-        identifiers: CampaignProvIds,
-        inputs: Mapping[str, QualifiedName],
-    ) -> None:
-        """Require every scientific input to be a local logical variable."""
-
-        for role, reference in inputs.items():
-            CampaignProvenance._require_campaign_reference(identifiers, reference, f"input {role!r}")
-            CampaignProvenance._require_record(
-                document,
-                reference,
-                ProvEntity,
-                HPC["LogicalVariable"],
-                f"input {role!r}",
-            )
+        for role, reference in products.items():
+            description = f"{label} {role!r}"
+            CampaignProvenance._require_campaign_reference(identifiers, reference, description)
+            record = CampaignProvenance._require_record(document, reference, ProvEntity, None, description)
+            types = record.get_asserted_types()
+            if PROV["Plan"] in types or not types.intersection(
+                {HPC["LogicalVariable"], HPC["Dataset"], HPC["VisualizationSequence"]}
+            ):
+                raise ValueError(f"{description} must reference a data product Entity: {reference}")
 
     @staticmethod
     def _require_context(
@@ -453,103 +492,19 @@ class CampaignProvenance:
             usages[role] = usage
         return usages
 
-    @staticmethod
-    def _add_action_specification(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        document: ProvDocument,
-        identifiers: CampaignProvIds,
-        activity_id: uuid.UUID,
-        activity: QualifiedName,
-        canonical_spec: tuple[str, str] | None,
-        usages: dict[str, QualifiedName],
-    ) -> QualifiedName | None:
-        """Add or reuse a content-addressed JSON specification Plan."""
-
-        if canonical_spec is None:
-            return None
-        value, digest = canonical_spec
-        campaign_id = uuid.UUID(str(identifiers.campaign_id))
-        specification_id = uuid.uuid5(campaign_id, f"action-specification:{digest}")
-        reference = identifiers.plan(specification_id)
-        records = document.get_record(reference)
-        if records:
-            record = CampaignProvenance._require_record(
-                document,
-                reference,
-                ProvEntity,
-                PROV["Plan"],
-                "action specification",
-            )
-            if HPC["ActionSpecification"] not in record.get_asserted_types():
-                raise ValueError(f"action specification has the wrong PROV type: {reference}")
-            CampaignProvenance._require_exact_attribute(record, PROV["value"], {value}, "JSON value")
-            CampaignProvenance._require_exact_attribute(
-                record,
-                HPC["mediaType"],
-                {"application/json"},
-                "media type",
-            )
-            CampaignProvenance._require_exact_attribute(record, HPC["sha256"], {digest}, "SHA-256")
-        else:
-            document.entity(
-                reference,
-                [
-                    (PROV["type"], PROV["Plan"]),
-                    (PROV["type"], HPC["ActionSpecification"]),
-                    (PROV["value"], value),
-                    (HPC["mediaType"], "application/json"),
-                    (HPC["sha256"], digest),
-                ],
-            )
-
-        role = CampaignProvenance._ACTION_SPECIFICATION_ROLE
-        usage = identifiers.usage(activity_id, role)
-        document.used(
-            activity,
-            reference,
-            identifier=usage,
-            other_attributes=[(PROV["role"], HPC[role])],
-        )
-        usages[role] = usage
-        return reference
-
     def _add_activity_outputs(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         document: ProvDocument,
         identifiers: CampaignProvIds,
         activity_id: uuid.UUID,
         activity: QualifiedName,
-        outputs: Mapping[str, VariableSpec],
+        outputs: Mapping[str, QualifiedName],
     ) -> tuple[dict[str, QualifiedName], dict[str, QualifiedName]]:
-        """Create output variables and their identified Generation records."""
+        """Generate existing product Entities and identify each relation."""
 
         output_references: dict[str, QualifiedName] = {}
         generations: dict[str, QualifiedName] = {}
-        for role, spec in outputs.items():
-            self._require_campaign_reference(identifiers, spec.run, f"output {role!r} run")
-            self._require_record(
-                document,
-                spec.run,
-                ProvActivity,
-                HPC["SimulationRun"],
-                f"output {role!r} run",
-            )
-            dataset = self._resolve_dataset(spec.dataset)
-            dataset_reference = self._ensure_dataset_entity(document, identifiers, dataset)
-            description = _LogicalVariableDescription(
-                variable_id=self._optional_uuid(spec.variable_id, f"output {role!r} variable_id"),
-                physical_name=spec.variable,
-                definition=spec.definition,
-                units=spec.units,
-                coordinate_system=spec.coordinate_system,
-            )
-            output = self._add_logical_variable_entity(
-                document,
-                identifiers,
-                spec.run,
-                dataset,
-                dataset_reference,
-                description,
-            )
+        for role, output in outputs.items():
             generation = identifiers.generation(activity_id, role)
             document.wasGeneratedBy(
                 output,
@@ -560,6 +515,10 @@ class CampaignProvenance:
             output_references[role] = output
             generations[role] = generation
         return output_references, generations
+
+    @staticmethod
+    def _entity_has_generation(document: ProvDocument, entity: QualifiedName) -> bool:
+        return any(record.args[0] == entity for record in document.get_records(ProvGeneration))
 
     @staticmethod
     def _add_qualified_derivations(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -619,39 +578,22 @@ class CampaignProvenance:
         return normalized
 
     @classmethod
-    def _validated_output_mapping(cls, outputs: Mapping[str, VariableSpec]) -> dict[str, VariableSpec]:
+    def _validated_output_mapping(cls, outputs: Mapping[str, QualifiedName]) -> dict[str, QualifiedName]:
         if not isinstance(outputs, Mapping):
-            raise TypeError("outputs must be a mapping from roles to VariableSpec values")
+            raise TypeError("outputs must be a mapping from roles to product Entity QualifiedNames")
         if not outputs:
             raise ValueError("outputs must contain at least one role")
 
-        normalized: dict[str, VariableSpec] = {}
-        for role, spec in outputs.items():
+        normalized: dict[str, QualifiedName] = {}
+        for role, reference in outputs.items():
             normalized_role = cls._required_token(role, "outputs role")
             if normalized_role in normalized:
                 raise ValueError(f"outputs contains duplicate normalized role: {normalized_role}")
-            if not isinstance(spec, VariableSpec):
-                raise TypeError(f"output role {normalized_role!r} must contain a VariableSpec")
-            # Validate all scalar fields before constructing a candidate graph.
-            cls._required_string(spec.dataset, f"output {normalized_role!r} dataset")
-            cls._required_string(spec.variable, f"output {normalized_role!r} variable")
-            cls._required_token(spec.definition, f"output {normalized_role!r} definition")
-            cls._optional_uuid(spec.variable_id, f"output {normalized_role!r} variable_id")
-            cls._optional_string(spec.units, f"output {normalized_role!r} units", preserve=True)
-            cls._optional_string(
-                spec.coordinate_system,
-                f"output {normalized_role!r} coordinate_system",
-                preserve=True,
-            )
-            normalized[normalized_role] = VariableSpec(
-                run=spec.run,
-                dataset=spec.dataset.strip(),
-                variable=spec.variable.strip(),
-                definition=spec.definition.strip(),
-                variable_id=spec.variable_id,
-                units=spec.units,
-                coordinate_system=spec.coordinate_system,
-            )
+            if not isinstance(reference, QualifiedName):
+                raise TypeError(f"output role {normalized_role!r} must reference a PROV QualifiedName")
+            normalized[normalized_role] = reference
+        if len(set(normalized.values())) != len(normalized):
+            raise ValueError("each output role must reference a different product Entity")
         return normalized
 
     @classmethod
@@ -659,7 +601,7 @@ class CampaignProvenance:
         cls,
         derivations: Mapping[str, Sequence[str]] | None,
         inputs: Mapping[str, QualifiedName],
-        outputs: Mapping[str, VariableSpec],
+        outputs: Mapping[str, QualifiedName],
     ) -> dict[str, tuple[str, ...]]:
         if derivations is None:
             return {output_role: tuple(inputs) for output_role in outputs}
@@ -702,24 +644,77 @@ class CampaignProvenance:
         return normalized
 
     @staticmethod
-    def _canonical_action_specification(action_spec: Mapping[str, object] | None) -> tuple[str, str] | None:
-        if action_spec is None:
+    def _canonical_metadata(metadata: Mapping[str, object] | None) -> str | None:
+        if metadata is None:
             return None
-        if not isinstance(action_spec, Mapping):
-            raise TypeError("action_spec must be a JSON-compatible mapping")
+        if not isinstance(metadata, Mapping):
+            raise TypeError("metadata must be a JSON-compatible mapping")
+        pending: list[object] = [metadata]
+        seen = set()
+        while pending:
+            item = pending.pop()
+            if id(item) in seen:
+                continue
+            if isinstance(item, Mapping):
+                if any(not isinstance(key, str) for key in item):
+                    raise ValueError("metadata keys must be strings at every nesting level")
+                pending.extend(item.values())
+            elif isinstance(item, (list, tuple)):
+                pending.extend(item)
+            else:
+                continue
+            # Shared containers need checking only once. Leave circular-value
+            # rejection to json.dumps rather than looping during key checks.
+            seen.add(id(item))
         try:
-            value = json.dumps(action_spec, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            value = json.dumps(dict(metadata), sort_keys=True, separators=(",", ":"), allow_nan=False)
         except (TypeError, ValueError) as exc:
-            raise ValueError("action_spec must contain only JSON-compatible values") from exc
-        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
-        return value, digest
+            raise ValueError("metadata must contain only JSON-compatible values") from exc
+        return value
 
-    def _load_authored_document(self) -> tuple[ProvDocumentInfo, ProvDocument, CampaignProvIds]:
-        info = self.store.ensure_authored_document()
-        document = self.store.document(info.document_id)
-        return info, document, CampaignProvIds(self.store.campaign_uuid())
+    def _load_authored_document(self) -> tuple[ProvDocumentInfo | None, ProvDocument, CampaignProvIds]:
+        """Load existing storage or start an unsaved document for the first edit."""
+        identifiers = CampaignProvIds(self.store.campaign_uuid())
+        info = next((item for item in self.store.documents() if item.name == DEFAULT_PROV_DOCUMENT_NAME), None)
+        if info is not None:
+            if not info.active:
+                raise ProvenanceStorageError(
+                    f"reserved document {DEFAULT_PROV_DOCUMENT_NAME!r} exists but is not active"
+                )
+            return info, self.store.document(info.document_id), identifiers
 
-    def _commit(self, info: ProvDocumentInfo, document: ProvDocument) -> None:
+        document = ProvDocument()
+        document.add_namespace(HPC)
+        document.add_namespace(identifiers.namespace)
+        return None, document, identifiers
+
+    def _active_reference_document(
+        self,
+        info: ProvDocumentInfo | None = None,
+        authored: ProvDocument | None = None,
+    ) -> ProvDocument:
+        """Build a reference view without copying imports into authored storage."""
+
+        documents = [] if authored is None else [authored]
+        documents.extend(
+            self.store.document(item.document_id)
+            for item in self.store.documents(active=True)
+            if info is None or item.document_id != info.document_id
+        )
+        references = ProvDocument()
+        seen = set()
+        for document in documents:
+            for bundle in (document, *document.bundles):
+                for record in bundle.get_records():
+                    if record not in seen:
+                        references.add_record(record)
+                        seen.add(record)
+        return references
+
+    def _commit(self, info: ProvDocumentInfo | None, document: ProvDocument) -> None:
+        if info is None:
+            self.store.add_document(document, name=DEFAULT_PROV_DOCUMENT_NAME, active=True)
+            return
         self.store.replace_document(
             info.document_id,
             document,
@@ -804,12 +799,15 @@ class CampaignProvenance:
         document: ProvDocument,
         identifiers: CampaignProvIds,
         dataset: _DatasetDescription,
-    ) -> QualifiedName:
+    ) -> tuple[QualifiedName, bool]:
+        """Return the reference and whether the supplied document was changed."""
+
         reference = identifiers.dataset(dataset.dataset_uuid)
         records = document.get_record(reference)
         if len(records) > 1:
             raise ValueError(f"dataset identifier has multiple PROV assertions: {reference}")
         if records:
+            changed = False
             record = records[0]
             if not isinstance(record, ProvEntity) or HPC["Dataset"] not in record.get_asserted_types():
                 raise ValueError(f"dataset identifier conflicts with an existing PROV record: {reference}")
@@ -829,8 +827,13 @@ class CampaignProvenance:
             existing_locations = record.get_attribute(PROV["location"])
             missing_locations = set(dataset.locations).difference(existing_locations)
             if missing_locations:
-                record.add_attributes((PROV["location"], location) for location in sorted(missing_locations))
-            return reference
+                record.add_attributes([(PROV["location"], location) for location in sorted(missing_locations)])
+                changed = True
+            media_type = {"IMAGE": HPC["Image"], "VIDEO": HPC["Video"]}.get(dataset.file_format)
+            if media_type is not None and media_type not in record.get_asserted_types():
+                record.add_attributes([(PROV["type"], media_type)])
+                changed = True
+            return reference, changed
 
         attributes: list[tuple[QualifiedName, object]] = [
             (PROV["type"], HPC["Dataset"]),
@@ -839,8 +842,11 @@ class CampaignProvenance:
             (HPC["format"], dataset.file_format),
         ]
         attributes.extend((PROV["location"], location) for location in dataset.locations)
+        media_type = {"IMAGE": HPC["Image"], "VIDEO": HPC["Video"]}.get(dataset.file_format)
+        if media_type is not None:
+            attributes.append((PROV["type"], media_type))
         document.entity(reference, attributes)
-        return reference
+        return reference, True
 
     @staticmethod
     def _require_exact_attribute(
@@ -856,14 +862,6 @@ class CampaignProvenance:
     def _require_unused_identifier(document: ProvDocument, reference: QualifiedName) -> None:
         if document.get_record(reference):
             raise ValueError(f"PROV identifier already exists: {reference}")
-
-    @staticmethod
-    def _require_unique_run_name(document: ProvDocument, name: str) -> None:
-        for record in document.get_records(ProvActivity):
-            if HPC["SimulationRun"] not in record.get_asserted_types():
-                continue
-            if name in record.get_attribute(PROV["label"]):
-                raise ValueError(f"run name already exists: {name}")
 
     @staticmethod
     def _require_campaign_reference(
@@ -900,16 +898,6 @@ class CampaignProvenance:
         except KeyError as exc:
             choices = ", ".join(sorted(cls._AGENT_TYPES))
             raise ValueError(f"agent kind must be one of: {choices}") from exc
-
-    @staticmethod
-    def _reference_uuid(reference: QualifiedName, kind: str) -> uuid.UUID:
-        prefix = f"{kind}_"
-        if not reference.localpart.startswith(prefix):
-            raise ValueError(f"expected {kind} identifier, got: {reference}")
-        try:
-            return uuid.UUID(reference.localpart[len(prefix) :])
-        except ValueError as exc:
-            raise ValueError(f"invalid {kind} UUID in PROV identifier: {reference}") from exc
 
     @staticmethod
     def _required_string(value: str, label: str) -> str:

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build a small simulation-to-visualization provenance campaign.
 
-The payloads are intentionally plain text placeholders. HPC Campaign records
+The numerical payloads are plain text placeholders, and the image is a tiny
+valid PNG standing in for rendered output. HPC Campaign records
 where products live; the PROV graph records how the logical scientific
 products are related. Real applications register their ADIOS, HDF5, image, or
 other datasets before making the same provenance calls shown here.
+The ancestry display reuses the read-only helper in provenance_hello_world.py.
 """
 
 from __future__ import annotations
@@ -12,7 +14,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from hpc_campaign import Manager, VariableSpec
+from PIL import Image
+
+from hpc_campaign import Manager
+
+if __package__:
+    from .provenance_hello_world import describe_ancestry
+else:
+    from provenance_hello_world import describe_ancestry
 
 
 def _register_placeholder(manager: Manager, payload_dir: Path, name: str, variables: list[str]) -> None:
@@ -58,72 +67,70 @@ def build_example(  # pylint: disable=too-many-locals
             "simulation-output": ["P"],
             "reduced-products": ["P_reduced"],
             "qoi-products": ["total_pressure"],
-            "visualizations": ["pressure.png"],
         }
         for dataset, variables in datasets.items():
             _register_placeholder(manager, payload_dir, dataset, variables)
 
         # Agents identify responsible software, while Plans identify recipes or
-        # configurations. The run associates both with a SimulationRun Activity.
-        sim = manager.add_agent("software", "sim", version="example")
-        run_plan = manager.add_plan(
+        # configurations. The simulation is a root Activity with no inputs.
+        simulation_software = manager.add_agent("software", "sim", version="example")
+        simulation_plan = manager.add_plan(
             "sim input configuration",
-            location="inputs/run-001.yaml",
+            location="inputs/simulation.yaml",
         )
-        run = manager.add_run("run-001", agent=sim, plan=run_plan)
-
         # A logical variable is a scientific Entity, not a copy of its payload.
-        # This record says that run-001 generated pressure variable P, whose
-        # bytes are found in the registered simulation-output dataset.
+        # Register it first, then record the simulation Activity that generated it.
         pressure = manager.add_variable(
-            run=run,
             dataset="simulation-output",
             variable="P",
             definition="pressure",
             units="Pa",
             coordinate_system="boozer",
         )
+        manager.add_activity(
+            "simulation",
+            name="simulation",
+            outputs={"pressure": pressure},
+            agent=simulation_software,
+            plan=simulation_plan,
+        )
 
-        # add_activity() atomically records an Activity, its input usages, its
-        # output generations, and output-to-input derivations. VariableSpec
-        # describes a new output Entity; the returned ActivityResult exposes its
-        # stable reference for use by later stages.
+        # Register the output Entity before atomically recording the reduction
+        # Activity, its causal input, generation, and derivation.
         mgard = manager.add_agent("software", "MGARD", version="example")
-        reduced = manager.add_activity(
+        reduced_pressure = manager.add_variable(
+            dataset="reduced-products",
+            variable="P_reduced",
+            definition="pressure",
+            units="Pa",
+            coordinate_system="boozer",
+        )
+        manager.add_activity(
             "reduction",
+            name="reduction",
             inputs={"source": pressure},
-            outputs={
-                "result": VariableSpec(
-                    run=run,
-                    dataset="reduced-products",
-                    variable="P_reduced",
-                    definition="pressure",
-                    units="Pa",
-                    coordinate_system="boozer",
-                )
-            },
-            action_spec={"method": "mgard", "error_bound": 0.001},
+            outputs={"result": reduced_pressure},
+            metadata={"method": "mgard", "error_bound": 0.001},
             agent=mgard,
         )
 
-        # Chaining the reduction's output into this input extends the graph:
+        # Reusing the reduced_pressure Entity extends the graph:
         # pressure -> reduction -> reduced pressure -> QoI -> total pressure.
         # A quantity of interest may be an array or a scalar; here it is a total.
-        analysis = manager.add_agent("software", "QoI analysis", version="example")
-        total_pressure = manager.add_activity(
+        analysis_software = manager.add_agent("software", "QoI analysis", version="example")
+        total_pressure = manager.add_variable(
+            dataset="qoi-products",
+            variable="total_pressure",
+            definition="total_pressure",
+            units="Pa",
+        )
+        manager.add_activity(
             "quantity_of_interest",
-            inputs={"pressure": reduced.outputs["result"]},
-            outputs={
-                "total": VariableSpec(
-                    run=run,
-                    dataset="qoi-products",
-                    variable="total_pressure",
-                    definition="total_pressure",
-                    units="Pa",
-                )
-            },
-            action_spec={"operation": "sum"},
-            agent=analysis,
+            name="quantity_of_interest",
+            inputs={"pressure": reduced_pressure},
+            outputs={"total": total_pressure},
+            metadata={"operation": "sum"},
+            agent=analysis_software,
         )
 
         # The reduced pressure and total pressure are scientific inputs to the
@@ -135,24 +142,21 @@ def build_example(  # pylint: disable=too-many-locals
             "Fides data model",
             location="visualization/fides.json",
         )
-        image = manager.add_activity(
+        image_path = payload_dir / "pressure.png"
+        Image.new("RGB", (16, 16), color="navy").save(image_path)
+        manager.image(image_path, name="pressure-image", store=True)
+        image = manager.add_dataset_entity("pressure-image")
+        manager.add_activity(
             "visualization",
+            name="visualization",
             inputs={
-                "color": reduced.outputs["result"],
-                "annotation": total_pressure.outputs["total"],
+                "color_by": reduced_pressure,
+                "annotation": total_pressure,
             },
             context={"data_model": fides},
-            outputs={
-                "image": VariableSpec(
-                    run=run,
-                    dataset="visualizations",
-                    variable="pressure.png",
-                    definition="pressure_visualization",
-                )
-            },
-            action_spec={"representation": "isosurface", "colormap": "viridis"},
+            outputs={"image": image},
+            metadata={"representation": "isosurface"},
             agent=paraview,
-            plan=fides,
         )
 
         # Provenance calls above update the canonical document inside the ACA.
@@ -162,8 +166,11 @@ def build_example(  # pylint: disable=too-many-locals
         export_path = campaign_store / "provenance-example.json"
         manager.export_prov("campaign-provenance", export_path)
         print(f"Campaign: {archive_path}")
-        print(f"Final image logical variable: {image.outputs['image']}")
+        print(f"Final image Entity: {image}")
         print(f"PROV-JSON export: {export_path}")
+        document = manager.prov_document("campaign-provenance")
+        print("Image ancestry:")
+        print(describe_ancestry(document, image))
         return export_path
     finally:
         manager.close()
