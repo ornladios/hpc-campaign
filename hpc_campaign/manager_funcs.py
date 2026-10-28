@@ -16,20 +16,21 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tarfile
 import uuid
 import zlib
 from hashlib import sha1
 from io import BytesIO
 from os import chdir, getcwd, remove, stat
 from os.path import basename, exists, isdir, join
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from socket import getfqdn
 from time import sleep, time_ns
 
 import adios2  # type: ignore[import-untyped]
 import nacl.secret
 import nacl.utils
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from .config import ACA_VERSION
 from .hdf5_metadata import copy_hdf5_file_without_data, is_hdf5_dataset
@@ -450,7 +451,7 @@ def _scalar_field_sequence_signature(metadata: dict, dataset_name: str) -> tuple
     return tuple(normalized[key] for key in SCALAR_FIELD_SEQUENCE_COMPATIBILITY_KEYS)
 
 
-def ensure_visualization_tables(cur: sqlite3.Cursor, con: sqlite3.Connection):
+def ensure_visualization_tables(cur: sqlite3.Cursor, con: sqlite3.Connection, commit: bool = True):
     sql_execute(
         cur,
         "create table if not exists visualization_sequence"
@@ -468,7 +469,8 @@ def ensure_visualization_tables(cur: sqlite3.Cursor, con: sqlite3.Connection):
         + " (visid INT, item_order INT, item_type TEXT, item_uuid TEXT, metadata TEXT, "
         + "PRIMARY KEY (visid, item_order))",
     )
-    sql_commit(con)
+    if commit:
+        sql_commit(con)
 
 
 def _serialize_visualization_metadata(metadata) -> str | None:
@@ -596,8 +598,9 @@ def add_visualization_sequence(  # pylint: disable=too-many-statements
     args: argparse.Namespace,
     cur: sqlite3.Cursor,
     con: sqlite3.Connection,
+    commit: bool = True,
 ) -> int:
-    ensure_visualization_tables(cur, con)
+    ensure_visualization_tables(cur, con, commit=commit)
 
     sequence_name = str(args.name or "").strip()
     if not sequence_name:
@@ -722,7 +725,8 @@ def add_visualization_sequence(  # pylint: disable=too-many-statements
             ),
         )
 
-    sql_commit(con)
+    if commit:
+        sql_commit(con)
     return visid
 
 
@@ -1549,6 +1553,78 @@ def archive_idx_replica(
         sql_commit(con)
 
 
+def register_tar_images(
+    tar_path: str | Path,
+    archive_id: int,
+    host_id: int,
+    dir_id: int,
+    requested_images: set[str],
+    cur: sqlite3.Cursor,
+    con: sqlite3.Connection,
+    commit: bool = True,
+) -> list[str]:
+    """Register selected image members directly as replicas in a TAR archive."""
+    with tarfile.open(tar_path, "r:") as archive:
+        members: dict[str, tarfile.TarInfo] = {}
+        for member in archive.getmembers():
+            if not member.isfile():
+                continue
+            if member.name in members and member.name in requested_images:
+                raise ValueError(f"Duplicate TAR member path: {member.name}")
+            if member.name in requested_images:
+                members[member.name] = member
+        missing = requested_images.difference(members)
+        if missing:
+            raise ValueError(f"Image members are missing from TAR: {', '.join(sorted(missing))}")
+
+        result: list[str] = []
+        for member_name in sorted(requested_images):
+            member = members[member_name]
+            normalized = PurePosixPath(member_name)
+            if normalized.is_absolute() or ".." in normalized.parts or normalized.as_posix() != member_name:
+                raise ValueError(f"Unsafe or non-normalized TAR member path: {member_name}")
+            source = archive.extractfile(member)
+            if source is None:
+                raise ValueError(f"Could not read TAR image member: {member_name}")
+            try:
+                with Image.open(source) as image:
+                    image.load()
+                    width, height = image.size
+            except (UnidentifiedImageError, OSError) as exc:
+                raise ValueError(f"TAR member is not a supported image: {member_name}") from exc
+
+            existing = sql_execute(cur, "select rowid from dataset where name = ?", (member_name,))
+            if existing.fetchone() is not None:
+                raise ValueError(f"Dataset already exists in campaign: {member_name}")
+
+            unique_id = uuid.uuid3(uuid.NAMESPACE_URL, f"{Path(tar_path).resolve()}#{member_name}").hex
+            dataset_id = add_dataset_to_archive(member_name, cur, unique_id, "IMAGE", member.mtime, verbose=False)
+            replica_id = add_replica_to_archive(
+                host_id,
+                dir_id,
+                archive_id,
+                0,
+                member_name,
+                cur,
+                dataset_id,
+                member.mtime,
+                member.size,
+                verbose=False,
+            )
+            add_resolution_to_archive(replica_id, width, height, cur, verbose=False)
+            sql_execute(
+                cur,
+                "insert into archiveidx (archiveid, replicaid, filename, offset, offset_data, size) "
+                "values (?, ?, '', ?, ?, ?)",
+                (archive_id, replica_id, member.offset, member.offset_data, member.size),
+            )
+            result.append(member_name)
+
+    if commit:
+        sql_commit(con)
+    return result
+
+
 def archive_idx(
     args: argparse.Namespace,
     archive_id: int,
@@ -1689,7 +1765,7 @@ def check_archival_storage_system_name(system: str):
 
 
 def add_archival_storage(
-    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection
+    args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection, commit: bool = True
 ) -> tuple[int, int, int]:
     """return tuple [hostid, directoryid, archiveid]"""
     protocol = args.system.lower()
@@ -1729,7 +1805,8 @@ def add_archival_storage(
             (dir_id, tarname, args.system, notes),
         )
         archive_id = lastrowid_or_zero(cur_archive)
-        sql_commit(con)
+        if commit:
+            sql_commit(con)
 
     if archive_id == 0:
         print("  ERROR: Could not insert information into table 'archive' for some reason")

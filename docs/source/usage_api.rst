@@ -124,6 +124,51 @@ Example usage:
 Additional options for images include:
 * `name="<NAME>"` representation name for the image in the campaign hierarchy
 
+**Register images and visualization sequences from a TAR**
+
+``add_image_tar`` registers selected regular image members as IMAGE datasets
+whose replicas point directly into the TAR. It does not extract the images or
+embed their bytes in the campaign. Each sequence's ``items`` list gives the
+TAR member paths in display order. Other TAR members are ignored by this call,
+so a TAR may also contain BP datasets or other files.
+
+Example:
+
+.. code-block:: python
+
+  manager.data("runs/run001/output.bp", name="run001/output.bp")
+  manager.add_image_tar(
+      "campaign.tar",
+      system="fs",
+      host="archive",
+      directory="/data/campaigns/run001",
+      sequences=[
+          {
+              "name": "run001/density",
+              "vis_type": "heatmap",
+              "source_dataset": "run001/output.bp",
+              "variables": [{"name": "rho", "role": "primary"}],
+              "items": [
+                  "images/vis0/frame000.png",
+                  "images/vis0/frame001.png",
+              ],
+              "thumbnail_name": "images/vis0/frame000.png",
+          },
+          {
+              "name": "run001/temperature",
+              "vis_type": "heatmap",
+              "source_dataset": "run001/output.bp",
+              "variables": [{"name": "temp", "role": "primary"}],
+              "items": ["images/vis1/frame000.png"],
+          },
+      ],
+  )
+
+Use an uncompressed TAR so readers can seek directly to the indexed members.
+Each item must name a regular TAR member that Pillow recognizes as an image.
+The member path is also its dataset name in the campaign and must not already
+exist there. The method returns the registered TAR member paths.
+
 **Derived visualizations**
 
 Use ``visualization`` when an image or image sequence is derived from variables

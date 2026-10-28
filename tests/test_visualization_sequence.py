@@ -1,4 +1,5 @@
 import json
+import tarfile
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +45,7 @@ def test_visualization_sequence_single_source(tmp_path: Path):
 
     # Read the archive back through info() and verify that the sequence-level
     # metadata, variable association, thumbnail, and explicit item were stored.
-    info_data = manager.info()
+    info_data = manager.info(list_replicas=True)
     assert len(info_data.visualization_sequences) == 1
 
     sequence_info = next(iter(info_data.visualization_sequences.values()))
@@ -78,6 +79,116 @@ def test_visualization_sequence_single_source(tmp_path: Path):
     assert f"item_uuid: {sequence_info.thumbnail_item_uuid}" in image_assoc_text
     assert 'metadata: {"colormap": "viridis"}' in image_assoc_text
 
+
+def test_add_image_tar_registers_ordered_sequences_and_tar_replicas(tmp_path: Path):
+    image_root = tmp_path / "images"
+    image_root.mkdir()
+    member_paths = [
+        "images/vis0/frame000.png",
+        "images/vis0/frame001.png",
+        "images/vis1/frame000.png",
+    ]
+    colors = ["red", "green", "blue"]
+    for member_path, color in zip(member_paths, colors, strict=True):
+        image_path = tmp_path / member_path
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (8, 6), color=color).save(image_path)
+    (tmp_path / "images/readme.txt").write_text("ignored non-image member", encoding="utf-8")
+
+    tar_path = tmp_path / "campaign.tar"
+    with tarfile.open(tar_path, "w") as archive:
+        for member_path in [*member_paths, "images/readme.txt"]:
+            archive.add(tmp_path / member_path, arcname=member_path)
+
+    manager = Manager(archive="image_tar.aca", campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+    registered = manager.add_image_tar(
+        tar_path,
+        system="fs",
+        host="image-archive",
+        directory="/campaigns/run001",
+        sequences=[
+            {
+                "name": "output/vis0",
+                "vis_type": "heatmap",
+                "source_dataset": "output",
+                "variables": [{"name": "temp", "role": "primary"}],
+                "items": member_paths[:2],
+                "thumbnail_name": member_paths[0],
+            },
+            {
+                "name": "output/vis1",
+                "vis_type": "heatmap",
+                "source_dataset": "output",
+                "variables": [{"name": "temp", "role": "primary"}],
+                "items": [member_paths[2]],
+            },
+        ],
+    )
+
+    assert set(registered) == set(member_paths)
+    info_data = manager.info(list_replicas=True)
+    datasets_by_name = {dataset.name: dataset for dataset in info_data.datasets.values()}
+    assert set(member_paths).issubset(datasets_by_name)
+    assert "images/readme.txt" not in datasets_by_name
+    sequences_by_name = {sequence.name: sequence for sequence in info_data.visualization_sequences.values()}
+    assert [item.dataset_name for item in sequences_by_name["output/vis0"].items] == member_paths[:2]
+    assert [item.dataset_name for item in sequences_by_name["output/vis1"].items] == [member_paths[2]]
+
+    archive_rows = manager.cur.execute("select count(*) from archiveidx where filename = ''").fetchone()
+    assert int(archive_rows[0]) == len(member_paths)
+    for member_path in member_paths:
+        dataset = datasets_by_name[member_path]
+        assert dataset.file_format == "IMAGE"
+        replica = next(iter(dataset.replicas.values()))
+        assert replica.flags.archive
+        assert replica.archive_id > 0
+        assert replica.resolution is not None
+        assert (replica.resolution.x, replica.resolution.y) == (8, 6)
+
+    manager.close()
+
+
+def test_add_image_tar_rolls_back_when_later_sequence_is_invalid(tmp_path: Path):
+    member_path = "images/vis0/frame000.png"
+    image_path = tmp_path / member_path
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (8, 6), color="red").save(image_path)
+    tar_path = tmp_path / "campaign.tar"
+    with tarfile.open(tar_path, "w") as archive:
+        archive.add(image_path, arcname=member_path)
+
+    manager = Manager(archive="image_tar_rollback.aca", campaign_store=str(tmp_path))
+    manager.open(create=True, truncate=True)
+    manager.data(str(data_dir / "onearray.h5"), name="output")
+
+    with pytest.raises(LookupError, match="Dataset not found or deleted: missing"):
+        manager.add_image_tar(
+            tar_path,
+            system="fs",
+            host="image-archive",
+            directory="/campaigns/run001",
+            sequences=[
+                {
+                    "name": "output/valid",
+                    "vis_type": "heatmap",
+                    "source_dataset": "output",
+                    "variables": [{"name": "temp", "role": "primary"}],
+                    "items": [member_path],
+                },
+                {
+                    "name": "output/invalid",
+                    "vis_type": "heatmap",
+                    "variables": [{"name": "temp", "role": "primary", "source_dataset": "missing"}],
+                    "items": [member_path],
+                },
+            ],
+        )
+
+    assert manager.cur.execute("select count(*) from archive where tarname = 'campaign.tar'").fetchone()[0] == 0
+    assert manager.cur.execute("select count(*) from dataset where name = ?", (member_path,)).fetchone()[0] == 0
+    assert manager.cur.execute("select count(*) from visualization_sequence").fetchone()[0] == 0
     manager.close()
 
 
