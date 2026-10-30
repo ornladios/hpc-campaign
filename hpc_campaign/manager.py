@@ -19,6 +19,7 @@ from io import BytesIO
 from os.path import exists
 from pathlib import Path
 from time import time_ns
+from typing import TypedDict
 from uuid import UUID
 
 import adios2  # type: ignore[import-untyped]
@@ -45,6 +46,7 @@ from .manager_funcs import (
     delete_replica,
     delete_time_series,
     probe_video_frame_count,
+    register_tar_images,
     set_default_args,
     update,
 )
@@ -60,6 +62,23 @@ from .utils import (
 
 CURRENT_TIME = time_ns()
 _CAMPAIGN_SCHEMA_NAME = "__campaign_schema.yaml"
+
+
+class _ImageTarSequenceRequired(TypedDict):
+    name: str
+    vis_type: str
+    variables: Sequence[object]
+    items: Sequence[str | Mapping[str, object]]
+
+
+class ImageTarSequence(_ImageTarSequenceRequired, total=False):
+    """Visualization sequence fields accepted by ``Manager.add_image_tar``."""
+
+    source_dataset: str
+    thumbnail_name: str
+    thumbnail_uuid: str
+    metadata: object
+    replace: bool
 
 
 class Manager:  # pylint: disable=too-many-public-methods
@@ -699,6 +718,150 @@ class Manager:  # pylint: disable=too-many-public-methods
             self.open(create=True, truncate=False)
         host_id, dir_id, archive_id = add_archival_storage(cmd_args, self.cur, self.con)
         return host_id, dir_id, archive_id
+
+    def add_image_tar(
+        self,
+        tar_path: str | Path,
+        *,
+        system: str,
+        host: str,
+        directory: str,
+        sequences: Sequence[ImageTarSequence],
+        longhostname: str = "",
+        note: str = "",
+    ) -> list[str]:
+        """Register image members from a TAR as archived datasets and sequences.
+
+        Each sequence mapping accepts the same fields as ``visualization_sequence``
+        and its ``items`` must be ordered TAR member paths.
+        """
+        tar_file = Path(tar_path).expanduser().resolve()
+        if not tar_file.is_file():
+            raise FileNotFoundError(f"TAR file not found: {tar_file}")
+        if not sequences:
+            raise ValueError("add_image_tar requires at least one sequence")
+
+        normalized_sequences: list[ImageTarSequence] = []
+        requested_images: set[str] = set()
+        for sequence in sequences:
+            if not isinstance(sequence, Mapping):
+                raise ValueError("Each image TAR sequence must be a mapping")
+            normalized_sequence, image_names = self._normalize_image_tar_sequence(sequence)
+            normalized_sequences.append(normalized_sequence)
+            requested_images.update(image_names)
+
+        storage = self._build_command_args(
+            "archival_storage",
+            {
+                "system": system,
+                "host": host,
+                "directory": directory,
+                "tarfilename": tar_file.name,
+                "tarfileidx": "",
+                "longhostname": longhostname,
+                "note": note,
+            },
+        )
+        check_archival_storage_system_name(system)
+        if not self.connected:
+            self.open(create=True, truncate=False)
+        with self.con:
+            host_id, dir_id, archive_id = add_archival_storage(storage, self.cur, self.con, commit=False)
+            registered = register_tar_images(
+                tar_file,
+                archive_id,
+                host_id,
+                dir_id,
+                requested_images,
+                self.cur,
+                self.con,
+                commit=False,
+            )
+
+            for sequence in normalized_sequences:
+                sequence_args = self._build_command_args(
+                    "visualization_sequence",
+                    {
+                        "name": sequence["name"],
+                        "vis_type": sequence["vis_type"],
+                        "variables": sequence["variables"],
+                        "items": sequence["items"],
+                        "source_dataset": sequence.get("source_dataset"),
+                        "thumbnail_name": sequence.get("thumbnail_name"),
+                        "thumbnail_uuid": sequence.get("thumbnail_uuid"),
+                        "metadata": sequence.get("metadata"),
+                        "replace": sequence.get("replace", False),
+                    },
+                )
+                add_visualization_sequence(sequence_args, self.cur, self.con, commit=False)
+        return registered
+
+    @staticmethod
+    def _optional_sequence_string(sequence: Mapping[str, object], key: str) -> str | None:
+        value = sequence.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"Sequence field {key!r} must be a string")
+        return value
+
+    @staticmethod
+    def _normalize_image_tar_sequence(
+        sequence: Mapping[str, object],
+    ) -> tuple[ImageTarSequence, set[str]]:
+        name = sequence.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Each sequence requires a non-empty string name")
+        vis_type = sequence.get("vis_type")
+        if not isinstance(vis_type, str) or not vis_type.strip():
+            raise ValueError(f"Sequence {name!r} requires a non-empty string vis_type")
+        variables = sequence.get("variables")
+        if not isinstance(variables, Sequence) or isinstance(variables, (str, bytes)) or not variables:
+            raise ValueError(f"Sequence {name!r} requires a non-empty variables list")
+        items = sequence.get("items")
+        if not isinstance(items, Sequence) or isinstance(items, (str, bytes)) or not items:
+            raise ValueError(f"Sequence {name!r} requires a non-empty ordered items list")
+
+        normalized_items: list[Mapping[str, object]] = []
+        image_names: set[str] = set()
+        for item in items:
+            normalized_item, member_name = Manager._normalize_image_tar_item(item)
+            normalized_items.append(normalized_item)
+            image_names.add(member_name)
+
+        normalized_sequence: ImageTarSequence = {
+            "name": name,
+            "vis_type": vis_type,
+            "variables": variables,
+            "items": normalized_items,
+        }
+        for key in ("source_dataset", "thumbnail_name", "thumbnail_uuid"):
+            value = Manager._optional_sequence_string(sequence, key)
+            if value is not None:
+                normalized_sequence[key] = value
+        metadata = sequence.get("metadata")
+        if metadata is not None:
+            normalized_sequence["metadata"] = metadata
+        replace = sequence.get("replace", False)
+        if not isinstance(replace, bool):
+            raise ValueError(f"Sequence {name!r} field 'replace' must be a boolean")
+        normalized_sequence["replace"] = replace
+        return normalized_sequence, image_names
+
+    @staticmethod
+    def _normalize_image_tar_item(item: str | Mapping[str, object]) -> tuple[Mapping[str, object], str]:
+        if isinstance(item, Mapping):
+            item_type = item.get("type", "IMAGE")
+            if not isinstance(item_type, str) or item_type.upper() != "IMAGE":
+                raise ValueError("TAR image sequences can only contain IMAGE items")
+            member_name = item.get("name")
+            if not isinstance(member_name, str) or not member_name:
+                raise ValueError("TAR sequence item mappings require a non-empty string name")
+            normalized_item = dict(item)
+            normalized_item["type"] = "IMAGE"
+            normalized_item["name"] = member_name
+            return normalized_item, member_name
+        if not isinstance(item, str) or not item:
+            raise ValueError("TAR sequence items must be non-empty member path strings")
+        return {"type": "IMAGE", "name": item}, item
 
     def archived_replica(
         self, name: str, dirid: int, archiveid: int = 0, newpath: str = "", replica: int = 0, move: bool = False
