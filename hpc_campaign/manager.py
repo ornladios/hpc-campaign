@@ -30,6 +30,7 @@ import yaml
 from PIL import Image as PILImage
 from prov.model import ProvDocument, QualifiedName
 
+from .image_publication import publish_image, publish_video
 from .info import InfoResult, collect_info, print_image_associations, print_info
 from .key import read_key
 from .manager_args import ArgParser
@@ -631,6 +632,42 @@ class Manager:  # pylint: disable=too-many-public-methods
         if not self.connected:
             self.open(create=True, truncate=False)
         add_image_data(cmd_args, self.cur, self.con)
+
+    def publish_image(self, data: bytes, *, publication_id: str, title: str, variables=None) -> dict:
+        """Atomically embed a PNG, its catalogue record, and optional associations.
+
+        ``publication_id`` is an immutable UUID supplied by the caller. Reusing it
+        returns the original publication, even if the caller supplies new values.
+        ``variables`` uses the same source-qualified specs as visualization_sequence.
+        This operation adds no scientific provenance records.
+        """
+        if not self.connected:
+            self.open(create=False)
+        return publish_image(self, data, publication_id=publication_id, title=title, variables=variables)
+
+    def publish_video(
+        self, data: bytes, *, preview: bytes, publication_id: str, title: str, video_metadata: dict, variables=None
+    ) -> dict:
+        """Atomically embed an MP4, PNG poster, record, and optional associations.
+
+        ``video_metadata`` supplies validated width, height, frame_count, fps and
+        duration. Optional ``time_values``, ``time_unit`` and ``time_source``
+        preserve the existing physical-time contract: one finite, non-decreasing
+        time per encoded frame. Without a mapping, playback uses frame indices.
+        Reusing the publication UUID returns the immutable original record.
+        This operation adds no scientific provenance records.
+        """
+        if not self.connected:
+            self.open(create=False)
+        return publish_video(
+            self,
+            data,
+            preview=preview,
+            publication_id=publication_id,
+            title=title,
+            video_metadata=video_metadata,
+            variables=variables,
+        )
 
     def scalar_field_data(
         self,
