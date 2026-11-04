@@ -1172,7 +1172,7 @@ def process_scalar_field_data(
     add_file_to_archive(args, "", cur, rep_id, mt, resname, compress=False, content=payload, indent="  ")
 
 
-def add_image_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
+def add_image_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection, commit: bool = True):
     long_host_name, short_host_name = get_host_name(args)
     verbose = is_verbose(args)
 
@@ -1180,10 +1180,12 @@ def add_image_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.C
     key_id = add_key_id(args.encryption_key_id, cur, verbose=verbose)
     rootdir = getcwd()
     dir_id = add_directory(host_id, rootdir, cur, verbose=verbose)
-    sql_commit(con)
+    if commit:
+        sql_commit(con)
 
     process_image_data(args, cur, host_id, dir_id, key_id, long_host_name + rootdir, rootdir)
-    sql_commit(con)
+    if commit:
+        sql_commit(con)
 
 
 def add_scalar_field_data(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection):
