@@ -205,8 +205,11 @@ def test_adding_provenance_to_0_7_preserves_existing_dataset_uuid(tmp_path: Path
     )
 
     # Build a representative legacy 0.7 ACA from the current test database.
-    # The normal upgrade API adds provenance storage without changing the ACA
-    # version that ADIOS CampaignReader supports.
+    # Remove the 0.8 extension to model a genuine legacy archive.
+    for row in manager.con.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall():
+        manager.con.execute(f'DROP TRIGGER "{row[0]}"')
+    for table in ("merge_head", "merge_meta", "change_log", "entity_identity"):
+        manager.con.execute(f'DROP TABLE "{table}"')
     manager.con.execute("DROP TABLE provenance_document")
     manager.con.execute("DROP TABLE campaign_identity")
     manager.con.execute("UPDATE info SET version = '0.7' WHERE id = 'ACA'")
@@ -217,7 +220,7 @@ def test_adding_provenance_to_0_7_preserves_existing_dataset_uuid(tmp_path: Path
     with pytest.raises(ProvenanceStorageError, match="upgrade this ACA"):
         manager.prov_document(uuid.uuid4())
 
-    assert manager.upgrade() == "0.7"
+    assert manager.upgrade() == "0.8"
     assert isinstance(manager.campaign_uuid(), uuid.UUID)
     stored_dataset = manager.con.execute(
         "SELECT uuid, name, fileformat FROM dataset WHERE name = 'output.bp'"
@@ -225,6 +228,6 @@ def test_adding_provenance_to_0_7_preserves_existing_dataset_uuid(tmp_path: Path
     stored_version = manager.con.execute("SELECT version FROM info WHERE id = 'ACA'").fetchone()[0]
 
     assert tuple(stored_dataset) == (str(dataset_id), "output.bp", "ADIOS")
-    assert stored_version == "0.7"
+    assert stored_version == "0.8"
     assert manager.prov_documents() == []
     manager.close()

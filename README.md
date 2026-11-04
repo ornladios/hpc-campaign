@@ -9,6 +9,14 @@ See [Installation](https://hpc-campaign.readthedocs.io/en/latest/installation.ht
 # hpc-campaign
 HPC Campaign Management is a set of Python scripts for creating small metadata files about large datasets in one or more locations, which can be shared among project users, and which refer back to the real data. 
 
+## ACA 0.8 merge
+
+Archives now record persistent identities and transactional change history.
+Upgrade an existing archive once before copying it, then preview or apply merges
+between copies. See [the merge workflow and protocol](docs/aca08-merge.md).
+The ADIOS2 `aca08_support` branch reads ACA 0.7 and 0.8. Older readers that
+accept only ACA 0.7 reject the new format.
+
 ## Provenance hello world
 
 The smallest provenance example records a simulation pressure variable, a
