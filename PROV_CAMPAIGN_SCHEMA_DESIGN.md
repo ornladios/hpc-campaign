@@ -804,7 +804,7 @@ the caller supplies an explicit mapping from output roles to input roles. For
 example:
 
 ```python
-derivations={
+derivations = {
     "magnitude": ["vector"],
     "quality_report": ["vector", "reference"],
 }

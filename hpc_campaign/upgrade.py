@@ -2,6 +2,7 @@ import argparse
 import sqlite3
 
 from .config import ACA_VERSION
+from .merge import install_history
 from .prov_store import create_provenance_tables
 from .utils import sql_commit, sql_error_list, sql_execute
 
@@ -140,29 +141,43 @@ def _upgrade_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.
     return "0.6"
 
 
-def _has_provenance_storage(cur: sqlite3.Cursor) -> bool:
-    res = sql_execute(
-        cur,
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('campaign_identity', 'provenance_document')",
-    )
-    return {row[0] for row in res.fetchall()} == {"campaign_identity", "provenance_document"}
-
-
-def _add_provenance_to_0_7(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
-    """Add provenance storage to a legacy 0.7 archive without relabeling it."""
-
-    print("Add provenance storage to ACA 0.7")
-    create_provenance_tables(cur)
-    if len(sql_error_list) == 0:
-        sql_commit(con)
-        return "0.7"
-
-    print("SQL Errors detected, drop all changes.")
-    con.rollback()
-    return "0.7"
+def _upgrade_to_0_8(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Connection) -> str:
+    """Atomically establish a baseline; historical 0.7 edits cannot be recovered."""
+    if con.in_transaction:
+        raise ValueError("Commit or roll back pending edits before upgrading")
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        tables = {row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "campaign_identity" not in tables and "provenance_document" not in tables:
+            create_provenance_tables(cur)
+        elif not {"campaign_identity", "provenance_document"}.issubset(tables):
+            raise ValueError("Incomplete provenance storage")
+        con.execute("CREATE TABLE IF NOT EXISTS scalar_field (datasetid INT PRIMARY KEY, metadata TEXT)")
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS visualization_sequence "
+            "(visid INTEGER PRIMARY KEY, name TEXT UNIQUE, vistype TEXT, thumbnail_itemuuid TEXT, metadata TEXT)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS visualization_variable "
+            "(visid INT, datasetid INT, variable_name TEXT, role TEXT, "
+            "PRIMARY KEY(visid, datasetid, variable_name, role))"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS visualization_item "
+            "(visid INT, item_order INT, item_type TEXT, item_uuid TEXT, metadata TEXT, "
+            "PRIMARY KEY(visid, item_order))"
+        )
+        install_history(con)
+        con.execute("UPDATE info SET version='0.8' WHERE id='ACA'")
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    return "0.8"
 
 
 UPGRADESTEP = {
+    "0.7": {"new_version": "0.8", "func": _upgrade_to_0_8},
     "0.5": {"new_version": "0.6", "func": _upgrade_to_0_6},
     "0.6": {"new_version": "0.7", "func": _upgrade_to_0_7},
 }
@@ -182,8 +197,5 @@ def upgrade_aca(args: argparse.Namespace, cur: sqlite3.Cursor, con: sqlite3.Conn
         else:
             print("This version cannot be upgraded")
     else:
-        if not _has_provenance_storage(cur):
-            new_version = _add_provenance_to_0_7(args, cur, con)
-        else:
-            print(f"This archive has the latest version already: {ACA_VERSION}")
+        print(f"This archive has the latest version already: {ACA_VERSION}")
     return new_version

@@ -421,7 +421,7 @@ class SSHConnectRemote:
         ssh_port: int = SSH_PORT,
         user_name: str | None = None,
         user_pass: str | None = None,
-        sock_channel: paramiko.Channel | None = None,
+        sock_channel: paramiko.Channel | paramiko.ProxyCommand | None = None,
     ):
         verbose(f"Connecting to remote server {host_name}:{ssh_port} ...")
 
@@ -620,7 +620,7 @@ class SSHLocalRemoteTunnel:
         verbose("Connected!  Tunnel open {chan.origin_addr} -> {chan.getpeername()} -> {host}:{port}")
 
         while True:
-            r, _w, _x = select.select([sock, chan], [], [])
+            r, _w, _x = select.select([sock, chan], [], [])  # type: ignore[type-var]
             if sock in r:
                 data = sock.recv(1024)
                 if len(data) == 0:

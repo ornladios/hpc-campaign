@@ -5,7 +5,7 @@ from os.path import expanduser
 
 import yaml
 
-ACA_VERSION = "0.7"
+ACA_VERSION = "0.8"
 # 0.2 added key encryption (added table key, modfified table bpdataset)
 # 0.3 generate UUID for each bpdataset (modified table bpdataset)
 # 0.4 added h5dataset table
