@@ -1,13 +1,21 @@
 """Fork exchange tests use real Manager connections and SQLite transactions."""
 
+import hashlib
+import io
+import json
 import shutil
 import sqlite3
+import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from PIL import Image
+from prov.model import Namespace, ProvDocument
 
 from hpc_campaign.manager import Manager
 from hpc_campaign.merge import MergeError, initialize_connection
+from hpc_campaign.prov_store import canonical_prov_json
 
 
 def archive(tmp_path, name="a.aca"):
@@ -26,6 +34,12 @@ def host(manager, name):
     return manager.con.execute("INSERT INTO host VALUES (?, ?, 1, 0, 'file') RETURNING rowid", (name, name)).fetchone()[
         0
     ]
+
+
+def _png(color):
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 12), color).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def test_collision_replay_roundtrip_and_third_copy(tmp_path):
@@ -398,3 +412,103 @@ def test_adios_reader_reads_merged_archive(tmp_path, monkeypatch):
     with reader:
         np.testing.assert_array_equal(reader.read("local/values"), first)
         np.testing.assert_array_equal(reader.read("remote/values"), second)
+
+
+def test_merge_published_image_movie_and_provenance_payloads(tmp_path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("requires FFmpeg")
+    movie_path = tmp_path / "movie.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=green:s=16x12:r=2:d=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(movie_path),
+        ],
+        check=True,
+    )
+    movie_bytes = movie_path.read_bytes()
+    preview_bytes = _png("green")
+    times = [0.25, 1.0]
+    timing_source = {"kind": "explicit", "source": "regression-test"}
+
+    a = archive(tmp_path)
+    b = fork(a, tmp_path)
+    b.args.hostname = "remote-test-host"
+    image_id = str(uuid4())
+    image_bytes = _png("blue")
+    image_record = a.publish_image(image_bytes, publication_id=image_id, title="Fork image")
+
+    movie_id = str(uuid4())
+    movie_record = b.publish_video(
+        movie_bytes,
+        preview=preview_bytes,
+        publication_id=movie_id,
+        title="Fork movie",
+        video_metadata={
+            "width": 16,
+            "height": 12,
+            "fps": 2.0,
+            "frame_count": 2,
+            "duration": 1.0,
+            "codec": "h264",
+            "time_mode": "physical_time",
+            "time_values": times,
+            "time_unit": "s",
+            "time_source": timing_source,
+        },
+    )
+
+    document = ProvDocument()
+    example = Namespace("example", "urn:example:")
+    document.add_namespace(example)
+    document.entity(example["movie"], {example["sha256"]: hashlib.sha256(movie_bytes).hexdigest()})
+    document.activity(example["render"])
+    document.wasGeneratedBy(example["movie"], example["render"])
+    document_id = b.add_prov_document(document, name="movie provenance", activate=True)
+    b.con.commit()
+
+    result = a.merge(b.args.campaign_file_name, apply=True)
+    assert result.applied and not result.conflicts
+
+    def stored_file(dataset_name, file_name):
+        row = a.con.execute(
+            "SELECT f.data FROM dataset d "
+            "JOIN replica r ON r.datasetid=d.rowid "
+            "JOIN repfiles rf ON rf.replicaid=r.rowid "
+            "JOIN file f ON f.fileid=rf.fileid "
+            "WHERE d.name=? AND f.name=?",
+            (dataset_name, file_name),
+        ).fetchone()
+        assert row is not None
+        return bytes(row[0])
+
+    merged_image = stored_file(image_record["image_name"], "16x12.png")
+    merged_preview = stored_file(movie_record["image_name"], "16x12.png")
+    merged_movie = stored_file(movie_record["video_name"], "movie.mp4")
+    assert merged_image == image_bytes
+    assert merged_preview == preview_bytes
+    assert merged_movie == movie_bytes
+    assert hashlib.sha256(merged_image).hexdigest() == image_record["image_sha256"]
+    assert hashlib.sha256(merged_movie).hexdigest() == movie_record["video_sha256"]
+
+    record_bytes = stored_file(f"__published_videos/{movie_id}.json", "publication.json")
+    merged_record = json.loads(record_bytes)
+    assert merged_record["video"]["time_values"] == times
+    assert merged_record["video"]["time_unit"] == "s"
+    assert merged_record["video"]["time_source"] == timing_source
+
+    provenance_info = next(info for info in a.prov_documents(active=True) if info.document_id == document_id)
+    assert provenance_info.sha256 == hashlib.sha256(canonical_prov_json(document).encode("utf-8")).hexdigest()
+    assert a.prov_document(document_id) == document
