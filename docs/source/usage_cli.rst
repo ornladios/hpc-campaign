@@ -7,9 +7,28 @@ The Python command `hpc_campaign` is the entry point to all commands:
 * **genkey**  Generates/validates keys used for encrypting datasets in the campaign archive
 * **ls**  Lists the available campaign archives, all or those that matches an expression
 * **rm**  Remove campaign archives, those that matches an expression
+* **merge** Merge one or more compatible campaign forks into the final archive argument
 * **manager** The main command with many sub-commands to create/delete/update a campaign archive
 * **taridx**  Creates an index from a TAR file that can be used to point to replicas on an archival storage
 * **cache** List/clear the content of the local cache
+
+Merging Campaign archives
+-------------------------
+
+.. code-block:: bash
+
+  hpc_campaign merge A B
+  hpc_campaign merge A B C
+  hpc_campaign merge A B C --dry-run
+
+The final argument is the destination; preceding arguments are read-only sources.
+An absent destination is created as an empty compatible fork before importing the
+sources. An existing destination keeps its own changes. The entire merge succeeds
+or leaves the destination unchanged. ``--dry-run`` also leaves an absent destination
+uncreated. All archives must share the campaign UUID and merge baseline (copies of
+a common ACA 0.8 archive). Independently created campaigns cannot be merged.
+Names gain ``.aca`` automatically and use the configured campaign store or
+``-s/--campaign_store``; use explicit ``./`` paths for the current directory.
 
 Creating a Campaign archive file
 --------------------------------

@@ -18,6 +18,7 @@ def arg_parse():
             "index",
             "ls",
             "manager",
+            "merge",
             "rm",
             "taridx",
         ],

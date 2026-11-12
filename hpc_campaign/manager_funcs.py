@@ -1915,6 +1915,10 @@ def create_tables(campaign_file_name: str, con: sqlite3.Connection):
         + ", PRIMARY KEY (archiveid, replicaid, filename))",
     )
     sql_commit(con)
+    from .merge import install_history  # pylint: disable=import-outside-toplevel
+
+    install_history(con)
+    con.commit()
     cur.close()
     while not exists(campaign_file_name):
         sleep(0.1)

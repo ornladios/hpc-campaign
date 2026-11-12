@@ -51,6 +51,7 @@ from .manager_funcs import (
     set_default_args,
     update,
 )
+from .merge import MergeResult, initialize_connection, merge_archive
 from .prov_store import ProvDocumentInfo, ProvStore
 from .provenance import ActivityResult, CampaignProvenance
 from .schema import SchemaInterpretationError, interpret_campaign_schema_layout
@@ -163,6 +164,7 @@ class Manager:  # pylint: disable=too-many-public-methods
             raise FileNotFoundError(f"archive {self.args.campaign_file_name} does not exist")
 
         self.con = sqlite3.connect(self.args.campaign_file_name)
+        initialize_connection(self.con)
         self.con.row_factory = sqlite3.Row
         self.cur = self.con.cursor()
         self.connected = True
@@ -1050,6 +1052,12 @@ class Manager:  # pylint: disable=too-many-public-methods
             metadata=metadata,
             replace=replace,
         )
+
+    def merge(self, source: str | Path, *, apply: bool = False) -> MergeResult:
+        """Preview a fork merge, or apply it atomically when conflict-free."""
+        if not self.connected:
+            self.open(create=False)
+        return merge_archive(self.con, source, apply=apply)
 
     def upgrade(self) -> str:
         if not self.connected:

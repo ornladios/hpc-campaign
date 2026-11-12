@@ -497,7 +497,7 @@ def main(args=None, prog=None):
     index = Index(index_file=args.indexfile, campaign_store=args.campaign_store, verbose=args.verbose)
 
     create_allowed = True
-    if args.command in ("ls"):
+    if args.command in "ls":
         create_allowed = False
     try:
         index.open(create=create_allowed, truncate=False)
