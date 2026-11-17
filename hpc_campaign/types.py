@@ -67,6 +67,8 @@ def python_type_to_variable_type(obj: Any) -> tuple[int, VariableType]:
         return 1, VariableType.uint8_t
 
     if isinstance(obj, (list, tuple, dict)):
+        if not obj:
+            return 0, VariableType.unknown
         return len(obj), python_type_to_variable_type(next(iter(obj)))[1]
 
     if obj is None:

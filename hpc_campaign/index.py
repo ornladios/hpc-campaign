@@ -391,11 +391,20 @@ class Index:
                         content = f.read(f"{dataset_name}")
                         json_attributes = json.loads("".join(chr(code) for code in content))
                         for atr in json_attributes:
-                            alen, atype = python_type_to_variable_type(atr)
                             avalue = json_attributes[atr]
+                            alen, atype = python_type_to_variable_type(avalue)
                             aname = atr.title()
                             asteps = 1
-                            amin = amax = avalue
+                            amin = amax = None
+                            if isinstance(avalue, list):
+                                # Only comparable scalar arrays have meaningful bounds.
+                                if avalue and (
+                                    all(isinstance(item, (int, float)) for item in avalue)
+                                    or all(isinstance(item, str) for item in avalue)
+                                ):
+                                    amin, amax = min(avalue), max(avalue)
+                            elif not isinstance(avalue, dict):
+                                amin = amax = avalue
                             if alen == 1:
                                 ndim = 0
                                 shape = ""
@@ -437,9 +446,9 @@ class Index:
                     if attr_name.endswith(".json"):
                         json_attributes = json.loads("".join(chr(code) for code in content))
                         for atr in json_attributes:
-                            alen, atype = python_type_to_variable_type(atr)
                             avalue = json_attributes[atr]
-                            self._add_attribute(archiveid, dsdict[dsid][0], attr_name, avalue, "string")
+                            alen, atype = python_type_to_variable_type(avalue)
+                            self._add_attribute(archiveid, dsdict[dsid][0], atr, avalue, atype.name)
                     else:  # otherwise we add variable data
                         self._add_attribute(archiveid, dsdict[dsid][0], attr_name, content, attr_info["Type"])
 
