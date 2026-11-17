@@ -1,4 +1,4 @@
-"""Exercise JSON expansion with a real index database and a controlled ADIOS reader."""
+"""Exercise archive indexing with a real index database and a controlled ADIOS reader."""
 
 import json
 import sqlite3
@@ -10,6 +10,7 @@ import pytest
 
 from hpc_campaign.index import Index
 from hpc_campaign.info import ArchiveInfo, DatasetInfo, InfoResult
+from hpc_campaign.types import VariableType
 
 
 @pytest.mark.parametrize("verbose", [0, 1])
@@ -88,6 +89,28 @@ def test_index_json_as_variable(monkeypatch, campaign_index, json_input):
     assert {name: json.loads(value) for name, value in rows} == {key.title(): value for key, value in expected.items()}
     assert campaign_index.con.execute("SELECT COUNT(*) FROM attributes").fetchone()[0] == 0
     reader.read.assert_called_once_with(dataset_name)
+
+
+@pytest.mark.parametrize("dataset_name, variable_type", [("inputs/adios2.xml", "char"), ("notes.txt", "uint8_t")])
+def test_index_text_as_variable(monkeypatch, campaign_index, dataset_name, variable_type):
+    reader = mock_json_archive(monkeypatch, dataset_name, "TEXT")
+    reader.available_variables.return_value = {
+        dataset_name: {"Type": variable_type, "Shape": "1216", "SingleValue": "false", "AvailableStepsCount": "1"}
+    }
+    variable = reader.inquire_variable.return_value
+    variable.type.return_value = variable_type
+    variable.steps.return_value = 1
+    variable.shape.return_value = [1216]
+    variable.single_value.return_value = False
+
+    # Re-indexing must also retain a single row with SQL NULL bounds.
+    for _ in range(2):
+        campaign_index._index_archive("text-variable.aca")
+
+    reader.inquire_variable.assert_called_with(dataset_name)
+    rows = campaign_index.con.execute("SELECT name, type, steps, min, max, ndim, shape FROM variables").fetchall()
+    assert rows == [("", VariableType[variable_type], 1, None, None, 1, "1216")]
+    reader.read.assert_not_called()
 
 
 def test_index_json_as_attribute(monkeypatch, campaign_index, json_input):

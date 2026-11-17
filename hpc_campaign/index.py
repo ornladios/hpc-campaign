@@ -423,7 +423,8 @@ class Index:
                                 archiveid, dataset_id, aname, atype, asteps, vmin, vmax, ndim, shape, avalue
                             )
                     else:  # otherwise we add variable data
-                        var = f.inquire_variable(f"{dataset_name}/{var_name}")
+                        variable_path = f"{dataset_name}/{var_name}" if var_name else dataset_name
+                        var = f.inquire_variable(variable_path)
                         if var is None:
                             continue
                         vtype = VariableType[var.type()]
@@ -438,8 +439,8 @@ class Index:
                             vname=var_name,
                             vtype=vtype,
                             vsteps=vsteps,
-                            vmin=var_info["Min"],
-                            vmax=var_info["Max"],
+                            vmin=var_info.get("Min"),
+                            vmax=var_info.get("Max"),
                             ndim=ndim,
                             vshape=var_info["Shape"],
                             value=value,
