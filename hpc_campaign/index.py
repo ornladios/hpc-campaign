@@ -123,9 +123,11 @@ class Index:
             if self.args.verbose > 0:
                 print(f"remove archive={archive}")
             cur = self.con.cursor()
-            cur_arch = sql_execute(cur, f'DELETE FROM archives WHERE name = "{archive}" RETURNING archiveid')
+            cur_arch = sql_execute(cur, "DELETE FROM archives WHERE name = ? RETURNING archiveid", (archive,))
+            removed = cur_arch.fetchall()
+            cur.close()
             if self.args.verbose > 0:
-                for row_arch in cur_arch:
+                for row_arch in removed:
                     print(f"    removed archive id = {row_arch[0]}")
             sql_commit(self.con)
 
