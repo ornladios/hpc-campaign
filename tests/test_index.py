@@ -1,6 +1,7 @@
 """Exercise JSON expansion with a real index database and a controlled ADIOS reader."""
 
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -9,6 +10,32 @@ import pytest
 
 from hpc_campaign.index import Index
 from hpc_campaign.info import ArchiveInfo, DatasetInfo, InfoResult
+
+
+@pytest.mark.parametrize("verbose", [0, 1])
+def test_remove_commits_all_archives(campaign_index, verbose, capsys):
+    campaign_index.args.verbose = verbose
+    for archive in ["first.aca", 'second"quoted.aca']:
+        archiveid = campaign_index._add_archive(archive, "")
+        datasetid = campaign_index._add_dataset(archiveid, 1, "data", 0, "")
+        campaign_index.con.execute(
+            "INSERT INTO variables (archiveid, datasetid, name) VALUES (?, ?, ?)",
+            (archiveid, datasetid, "temperature"),
+        )
+        campaign_index.con.execute(
+            "INSERT INTO attributes (archiveid, datasetid, name) VALUES (?, ?, ?)",
+            (archiveid, datasetid, "units"),
+        )
+    campaign_index.con.commit()
+
+    campaign_index.remove([])
+
+    assert not campaign_index.con.in_transaction
+    assert "SQL commit" not in capsys.readouterr().out
+    campaign_index.close()
+    with sqlite3.connect(campaign_index.args.index_file) as connection:
+        for table in ("archives", "datasets", "variables", "attributes"):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
 @pytest.fixture
