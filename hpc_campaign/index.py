@@ -43,11 +43,11 @@ def _json_value_bounds(value: Any) -> tuple[str | None, str | None]:
         ):
             return None, None
         lower, upper = min(value), max(value)
-    elif isinstance(value, dict):
+    elif value is None or isinstance(value, dict):
         return None, None
     else:
         lower = upper = value
-    return str(lower), str(upper)
+    return str(int(lower) if isinstance(lower, bool) else lower), str(int(upper) if isinstance(upper, bool) else upper)
 
 
 class Index:
