@@ -35,6 +35,21 @@ from .utils import (
 )
 
 
+def _json_value_bounds(value: Any) -> tuple[str | None, str | None]:
+    """Return text bounds for comparable JSON values, or null bounds otherwise."""
+    if isinstance(value, list):
+        if not value or not (
+            all(isinstance(item, (int, float)) for item in value) or all(isinstance(item, str) for item in value)
+        ):
+            return None, None
+        lower, upper = min(value), max(value)
+    elif value is None or isinstance(value, dict):
+        return None, None
+    else:
+        lower = upper = value
+    return str(int(lower) if isinstance(lower, bool) else lower), str(int(upper) if isinstance(upper, bool) else upper)
+
+
 class Index:
     """Index API for campaign store indexing."""
 
@@ -293,8 +308,8 @@ class Index:
         vname: str,
         vtype: VariableType,
         vsteps: int,
-        vmin: str,
-        vmax: str,
+        vmin: str | None,
+        vmax: str | None,
         ndim: int,
         vshape: str,
         value: Any,
@@ -391,11 +406,11 @@ class Index:
                         content = f.read(f"{dataset_name}")
                         json_attributes = json.loads("".join(chr(code) for code in content))
                         for atr in json_attributes:
-                            alen, atype = python_type_to_variable_type(atr)
                             avalue = json_attributes[atr]
+                            alen, atype = python_type_to_variable_type(avalue)
                             aname = atr.title()
                             asteps = 1
-                            amin = amax = avalue
+                            vmin, vmax = _json_value_bounds(avalue)
                             if alen == 1:
                                 ndim = 0
                                 shape = ""
@@ -403,7 +418,7 @@ class Index:
                                 ndim = 1
                                 shape = f"{alen}"
                             self._add_variable(
-                                archiveid, dataset_id, aname, atype, asteps, amin, amax, ndim, shape, avalue
+                                archiveid, dataset_id, aname, atype, asteps, vmin, vmax, ndim, shape, avalue
                             )
                     else:  # otherwise we add variable data
                         var = f.inquire_variable(f"{dataset_name}/{var_name}")
@@ -437,9 +452,9 @@ class Index:
                     if attr_name.endswith(".json"):
                         json_attributes = json.loads("".join(chr(code) for code in content))
                         for atr in json_attributes:
-                            alen, atype = python_type_to_variable_type(atr)
                             avalue = json_attributes[atr]
-                            self._add_attribute(archiveid, dsdict[dsid][0], attr_name, avalue, "string")
+                            alen, atype = python_type_to_variable_type(avalue)
+                            self._add_attribute(archiveid, dsdict[dsid][0], atr, avalue, atype.name)
                     else:  # otherwise we add variable data
                         self._add_attribute(archiveid, dsdict[dsid][0], attr_name, content, attr_info["Type"])
 
@@ -497,7 +512,7 @@ def main(args=None, prog=None):
     index = Index(index_file=args.indexfile, campaign_store=args.campaign_store, verbose=args.verbose)
 
     create_allowed = True
-    if args.command in ("ls"):
+    if args.command == "ls":
         create_allowed = False
     try:
         index.open(create=create_allowed, truncate=False)

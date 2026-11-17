@@ -1,0 +1,19 @@
+{
+    "L_int": 64,
+    "Du_float": 0.2,
+    "steps_array": [1000,2000,3000],
+    "float_array": [1.1,2.22,3.333,4.4444],
+    "output_string": "gs.bp",
+    "checkpoint_bool": true,
+    "optional_parameter": null,
+    "output_variables": ["U", "V"],
+    "enabled_axes": [true, false, true],
+    "empty_array": [],
+    "mixed_array": [64, 0.2, "gs.bp", true, null],
+    "solver": {
+        "dt": 2.0,
+        "steps": 1000,
+        "checkpoint": true
+    },
+    "empty_object": {}
+}
