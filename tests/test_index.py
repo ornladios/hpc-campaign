@@ -58,9 +58,7 @@ def test_index_json_as_variable(monkeypatch, campaign_index, json_input):
 
     rows = campaign_index.con.execute("SELECT name, value FROM variables").fetchall()
     assert len(rows) == len(expected)
-    assert {name: json.loads(value) for name, value in rows} == {
-        key.title(): value for key, value in expected.items()
-    }
+    assert {name: json.loads(value) for name, value in rows} == {key.title(): value for key, value in expected.items()}
     assert campaign_index.con.execute("SELECT COUNT(*) FROM attributes").fetchone()[0] == 0
     reader.read.assert_called_once_with(dataset_name)
 
@@ -70,9 +68,7 @@ def test_index_json_as_attribute(monkeypatch, campaign_index, json_input):
     dataset_name = "simulation.bp"
     attribute_name = "metadata/example.json"
     reader = mock_json_archive(monkeypatch, dataset_name, "ADIOS")
-    reader.available_attributes.return_value = {
-        f"{dataset_name}/{attribute_name}": {"Type": "uint8_t"}
-    }
+    reader.available_attributes.return_value = {f"{dataset_name}/{attribute_name}": {"Type": "uint8_t"}}
     reader.read_attribute.return_value = content
 
     campaign_index._index_archive("json-attribute.aca")
@@ -100,9 +96,7 @@ def test_index_json_as_attribute(monkeypatch, campaign_index, json_input):
         ("empty_object", None, None),
     ],
 )
-def test_index_json_variable_bounds(
-    monkeypatch, campaign_index, json_input, key, expected_min, expected_max
-):
+def test_index_json_variable_bounds(monkeypatch, campaign_index, json_input, key, expected_min, expected_max):
     _, example = json_input
     value = example[key]
     dataset_name = "example.json"
