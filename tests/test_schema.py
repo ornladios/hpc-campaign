@@ -164,7 +164,7 @@ def test_set_schema_updates_existing_embedded_content(tmp_path: Path):
     assert schema["files"]["output"]["path"] == "updated.bp"
 
 
-def test_schema_coexists_with_existing_time_series(tmp_path: Path):
+def test_schema_coexists_with_existing_time_series(tmp_path: Path, monkeypatch):
     # Multifile layouts still use the existing timeseries table for ordered
     # dataset membership. The schema describes layout/associations and should
     # not interfere with that zero-based ordering.
@@ -175,12 +175,14 @@ def test_schema_coexists_with_existing_time_series(tmp_path: Path):
     # Build a small campaign that has both new schema metadata and the existing
     # ordered timeseries metadata. onearray.h5 is reused as stand-in data; the
     # dataset names are what matter for this storage-level test.
+    # CampaignReader joins replica paths to the recorded working directory.
+    monkeypatch.chdir(repo_root)
     manager = Manager(archive=archive_name, campaign_store=str(tmp_path))
     manager.open(create=True, truncate=True)
     manager.set_schema(schema_path)
-    manager.data(data_dir / "onearray.h5", name="grid.bp")
+    manager.data("data/onearray.h5", name="grid.bp")
     for field_name in fields:
-        manager.data(data_dir / "onearray.h5", name=field_name)
+        manager.data("data/onearray.h5", name=field_name)
     manager.add_time_series("fields", fields, replace=True)
     manager.close()
 

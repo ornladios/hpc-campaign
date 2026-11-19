@@ -74,6 +74,81 @@ def mock_json_archive(monkeypatch, dataset_name, file_format):
     return reader
 
 
+@pytest.mark.parametrize("wildcard", [False, True])
+def test_add_absolute_archive_path(monkeypatch, campaign_index, tmp_path, json_input, wildcard):
+    store = tmp_path / "store"
+    store.mkdir()
+    campaign_index.args.campaign_store = str(store)
+    # The archive is outside the campaign store and contains regex metacharacters.
+    archive = tmp_path / "external [1].aca"
+    archive.touch()
+    content, expected = json_input
+    reader = mock_json_archive(monkeypatch, "example.json", "TEXT")
+    reader.available_variables.return_value = {"example.json": {"Type": "uint8_t"}}
+    reader.read.return_value = content
+
+    campaign_index.add([str(archive)], wildcard=wildcard)
+
+    assert campaign_index.ls([]) == [str(archive)]
+    rows = campaign_index.con.execute("SELECT name, value FROM variables").fetchall()
+    assert {name: json.loads(value) for name, value in rows} == {key.title(): value for key, value in expected.items()}
+
+
+@pytest.mark.parametrize("pattern, wildcard", [(r"external.*\.aca$", False), ("external*.aca", True)])
+def test_add_archive_pattern(monkeypatch, campaign_index, tmp_path, pattern, wildcard):
+    (tmp_path / "external.aca").touch()
+    (tmp_path / "other.aca").touch()
+    index_archive = MagicMock()
+    monkeypatch.setattr(campaign_index, "_index_archive", index_archive)
+
+    campaign_index.add([pattern], wildcard=wildcard)
+
+    index_archive.assert_called_once_with("external.aca")
+
+
+def test_index_attributes_with_overlapping_dataset_names(monkeypatch, campaign_index):
+    reader = mock_json_archive(monkeypatch, "input", "TEXT")
+    info = InfoResult(
+        archive=ArchiveInfo("ACA", "Path test", "0.7", 0),
+        datasets={
+            1: DatasetInfo("input", "input", 0, 0, "TEXT"),
+            2: DatasetInfo("data", "input_dir/De0.dat", 0, 0, "TEXT"),
+            3: DatasetInfo("nested", "input/nested", 0, 0, "TEXT"),
+        },
+    )
+    manager = MagicMock()
+    manager.return_value.info.return_value = info
+    monkeypatch.setattr("hpc_campaign.index.Manager", manager)
+    values = {
+        "input/__dataset_location__": "local",
+        "input_dir/De0.dat/__dataset_location__": "remote",
+        "input/nested/__dataset_location__": "remote",
+    }
+    reader.available_attributes.return_value = {name: {"Type": "string"} for name in values}
+    # Reading a reconstructed name that does not exist must fail as in ADIOS.
+    reader.read_attribute.side_effect = values.__getitem__
+
+    campaign_index._index_archive("overlapping.aca")
+
+    rows = campaign_index.con.execute(
+        "SELECT datasets.name, attributes.name, attributes.value FROM attributes JOIN datasets USING (datasetid)"
+    ).fetchall()
+    assert sorted(rows) == [
+        ("input", "__dataset_location__", '"local"'),
+        ("input/nested", "__dataset_location__", '"remote"'),
+        ("input_dir/De0.dat", "__dataset_location__", '"remote"'),
+    ]
+
+
+def test_dataset_grouping_rejects_unmatched_entry_after_match(campaign_index):
+    info = InfoResult(
+        archive=ArchiveInfo("ACA", "Path test", "0.7", 0),
+        datasets={1: DatasetInfo("input", "input", 0, 0, "TEXT")},
+    )
+    with pytest.raises(RuntimeError, match="unrelated/attribute has no matching dataset"):
+        campaign_index._organize_by_dataset({"input/attribute": {}, "unrelated/attribute": {}}, info)
+
+
 def test_index_json_as_variable(monkeypatch, campaign_index, json_input):
     content, expected = json_input
     dataset_name = "inputs/example.json"
