@@ -198,3 +198,4 @@ test_h5.sh
 tests/heat2d.py
 tests/manual_paramiko5_ssh.py
 
+/dockerfiles/certs/*.crt

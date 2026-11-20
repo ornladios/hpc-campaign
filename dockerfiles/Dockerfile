@@ -9,14 +9,35 @@ RUN pip install --no-cache-dir poetry poetry-plugin-export
 
 COPY pyproject.toml poetry.lock ./
 
-RUN poetry export -f requirements.txt -o requirements.txt --without-hashes --with dev \
-    && pip install --no-cache-dir -r requirements.txt \
-    && rm requirements.txt
-
+# The locked ADIOS2 release has no Linux ARM64 wheel, so pip needs a native
+# toolchain and transport libraries here, before installing Python dependencies.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends tk \
+    && apt-get install --yes --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        libcurl4-openssl-dev \
+        libsodium-dev \
+        libssl-dev \
+        libxrootd-dev \
+        libxrootd-private-dev \
+        libxrootd-server-dev \
+        ninja-build \
+        pkg-config \
+        tk \
     && rm -rf /var/lib/apt/lists/*
 
+COPY dockerfiles/integration/adios2-linux-arm64-cache.h /tmp/adios2-linux-arm64-cache.h
+
+# Override the PyPI package's misspelled Curl option and require the transports
+# rather than silently accepting an ADIOS2 build without XRootD support.
+# The cache compatibility include is scoped to this pip build, not the later
+# integration build from the selected ADIOS2 source checkout.
+RUN poetry export -f requirements.txt -o requirements.txt --without-hashes --with dev \
+    && CFLAGS="-include /tmp/adios2-linux-arm64-cache.h" \
+       CMAKE_ARGS="-DADIOS2_USE_CURL=ON -DADIOS2_USE_XRootD=ON -DADIOS2_USE_Sodium=ON -DADIOS2_USE_OpenSSL=ON" \
+       pip install --no-cache-dir -r requirements.txt \
+    && rm requirements.txt /tmp/adios2-linux-arm64-cache.h
 
 FROM app-deps AS app
 
@@ -102,13 +123,18 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional site CA certificates for HTTPS-inspecting proxies (for example,
+# ORNL's Netskope proxy). Keep TLS verification enabled for Git and submodules.
+COPY dockerfiles/certs/ /usr/local/share/ca-certificates/hpc-campaign-build/
+RUN update-ca-certificates
+
 RUN git clone --recurse-submodules --depth 1 --branch "${AWS_SDK_CPP_VERSION}" \
         https://github.com/aws/aws-sdk-cpp.git /tmp/aws-sdk-cpp \
     && cmake -S /tmp/aws-sdk-cpp -B /tmp/aws-sdk-cpp-build -G Ninja \
         -DAUTORUN_UNIT_TESTS=OFF \
         -DBUILD_ONLY="s3;iam;sts;s3-crt" \
         -DBUILD_SHARED_LIBS=ON \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${AWS_SDK_PREFIX}" \
         -DENABLE_TESTING=OFF \
     && cmake --build /tmp/aws-sdk-cpp-build --parallel "${BUILD_JOBS}" \
