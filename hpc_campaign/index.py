@@ -8,10 +8,14 @@
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
+from contextlib import ExitStack
+from decimal import Decimal
 from os.path import exists
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Any
 
@@ -49,6 +53,15 @@ def _json_value_bounds(value: Any) -> tuple[str | None, str | None]:
     else:
         lower = upper = value
     return str(int(lower) if isinstance(lower, bool) else lower), str(int(upper) if isinstance(upper, bool) else upper)
+
+
+def _logical_datasets(info: InfoResult) -> dict[int, tuple[str, DatasetType]]:
+    datasets = {dsid: (ds.name, DatasetType[ds.file_format]) for dsid, ds in info.datasets.items()}
+    for tsid, series in info.time_series.items():
+        # Negative ACA IDs identify logical series without colliding with members.
+        member = next(iter(series.datasets.values()), None)
+        datasets[-tsid] = (series.name, DatasetType[member.file_format] if member else DatasetType.Unknown)
+    return datasets
 
 
 class Index:
@@ -97,6 +110,7 @@ class Index:
             self._wipe_acx()
         if not fileexists or truncate:
             self._create_tables(self.args.index_file)
+        self._ensure_time_series_tables()
 
     def close(self):
         """
@@ -168,6 +182,7 @@ class Index:
 
         self.con.commit()
         self.con.execute("VACUUM;")
+        self.con.execute("PRAGMA foreign_keys = ON")
 
     def _create_tables(self, index_file: str):
         print(f"Create new index {index_file}")
@@ -279,6 +294,47 @@ class Index:
         self.print_table("datasets")
         self.print_table("variables")
         self.print_table("attributes")
+        self.print_table("timeseries")
+        self.print_table("timeseries_datasets")
+        self.print_table("timeseries_variable_steps")
+
+    def _ensure_time_series_tables(self):
+        """Add time-series metadata to new and existing ACX files."""
+        self.con.execute("""
+            CREATE TABLE IF NOT EXISTS timeseries (
+                tsid INTEGER PRIMARY KEY,
+                archiveid INTEGER NOT NULL REFERENCES archives(archiveid) ON DELETE CASCADE,
+                aca_tsid INTEGER NOT NULL,
+                datasetid INTEGER NOT NULL UNIQUE REFERENCES datasets(datasetid) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                UNIQUE (archiveid, aca_tsid)
+            )
+        """)
+        self.con.execute("""
+            CREATE TABLE IF NOT EXISTS timeseries_datasets (
+                tsid INTEGER NOT NULL REFERENCES timeseries(tsid) ON DELETE CASCADE,
+                datasetid INTEGER NOT NULL REFERENCES datasets(datasetid) ON DELETE CASCADE,
+                tsorder INTEGER NOT NULL,
+                PRIMARY KEY (tsid, datasetid),
+                UNIQUE (tsid, tsorder)
+            )
+        """)
+        self.con.execute("""
+            CREATE TABLE IF NOT EXISTS timeseries_variable_steps (
+                tsid INTEGER NOT NULL,
+                datasetid INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                step_start INTEGER NOT NULL CHECK (step_start >= 0),
+                steps INTEGER NOT NULL CHECK (steps > 0),
+                PRIMARY KEY (tsid, datasetid, name),
+                FOREIGN KEY (tsid, datasetid) REFERENCES timeseries_datasets(tsid, datasetid) ON DELETE CASCADE
+            )
+        """)
+        self.con.execute(
+            "CREATE INDEX IF NOT EXISTS timeseries_variable_step_lookup "
+            "ON timeseries_variable_steps (tsid, name, step_start)"
+        )
+        self.con.commit()
 
     def _add_archive(self, archive: str, indent: str) -> int:
         cur = self.con.cursor()
@@ -333,7 +389,7 @@ class Index:
             "INSERT INTO variables VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "on conflict (archiveid, datasetid, name) do update "
             "set type = excluded.type, steps = excluded.steps, min = excluded.min, max = excluded.max, "
-            "ndim = excluded.ndim, shape = excluded.shape",
+            "ndim = excluded.ndim, shape = excluded.shape, value = excluded.value",
             (archiveid, datasetid, vname, vtype, vsteps, vmin, vmax, ndim, vshape, json.dumps(value)),
         )
 
@@ -359,12 +415,12 @@ class Index:
         d: DatasetsVariables = {}
         # Prefer the most specific dataset and match a complete path component.
         # For example, dataset "input" must not capture "input_dir/file".
-        datasets = sorted(info.datasets.items(), key=lambda item: len(item[1].name), reverse=True)
+        datasets = sorted(_logical_datasets(info).items(), key=lambda item: len(item[1][0]), reverse=True)
         for ename, edict in entries.items():
-            for ds_id, ds in datasets:
-                if ename == ds.name or ename.startswith(ds.name + "/"):
+            for ds_id, (name, _) in datasets:
+                if ename == name or ename.startswith(name + "/"):
                     dsid = ds_id
-                    entryname = ename[len(ds.name) + 1 :]
+                    entryname = ename[len(name) + 1 :]
                     break
             else:
                 raise RuntimeError(
@@ -376,22 +432,41 @@ class Index:
         return d
 
     def _index_archive(self, archive: str):
+        # Publish membership and summaries together, or retain the previous snapshot.
+        with self.con:
+            self._index_archive_contents(archive)
+
+    def _index_archive_contents(self, archive: str):
         manager = Manager(archive, campaign_store=self.args.campaign_store, verbose=0)
-        info_res = manager.info()
-        if len(info_res.datasets) < 0:
-            return
+        try:
+            info_res = manager.info()
+        finally:
+            manager.close()
 
         archiveid = self._add_archive(archive, "    ")
+        self.con.execute("DELETE FROM timeseries WHERE archiveid = ?", (archiveid,))
+        self.con.execute("DELETE FROM variables WHERE archiveid = ?", (archiveid,))
+        self.con.execute("DELETE FROM attributes WHERE archiveid = ?", (archiveid,))
 
         dsdict: dict[int, tuple[int, str]] = {}
-        for ds_id, ds in info_res.datasets.items():
-            datasetid = self._add_dataset(archiveid, ds_id, ds.name, DatasetType[ds.file_format], "    ")
-            dsdict[ds_id] = (datasetid, ds.name)
+        for ds_id, (name, dataset_type) in _logical_datasets(info_res).items():
+            datasetid = self._add_dataset(archiveid, ds_id, name, dataset_type, "    ")
+            dsdict[ds_id] = (datasetid, name)
 
-        # ds.id, dsid: the dataset integer ID in the archive file itself
+        # dsid: ACA dataset ID, or negated ACA time-series ID
         # datasetid: rowid of the datasets table in this database
 
-        with adios2.FileReader(archive) as f:
+        archive_path = get_path(archive, self.args.campaign_store)
+        with ExitStack() as stack:
+            if info_res.time_series:
+                cache = stack.enter_context(TemporaryDirectory(prefix="hpc-index-"))
+                adios = adios2.Adios()
+                io = adios.declare_io("index-archive")
+                io.set_engine("Campaign")
+                io.set_parameters({"CachePath": cache})
+                f = stack.enter_context(adios2.FileReader(io, archive_path))
+            else:
+                f = stack.enter_context(adios2.FileReader(archive_path))
             variables = f.available_variables()
             ds_var_entries: DatasetsVariables = self._organize_by_dataset(variables, info_res)
             attributes = f.available_attributes()
@@ -399,6 +474,9 @@ class Index:
 
             # add variables to the collection
             for dsid, variables in ds_var_entries.items():
+                if dsid < 0:
+                    # Build a single summary from the individual members below.
+                    continue
                 dataset_id: int = dsdict[dsid][0]
                 dataset_name: str = dsdict[dsid][1]
                 for var_name, var_info in variables.items():
@@ -461,7 +539,93 @@ class Index:
                     else:  # otherwise we add variable data
                         self._add_attribute(archiveid, dsdict[dsid][0], attr_name, content, attr_info["Type"])
 
-        sql_commit(self.con)
+        self._index_time_series(archive_path, archiveid, info_res, dsdict)
+        active_ids = list(dsdict)
+        for series in info_res.time_series.values():
+            active_ids.extend(series.datasets)
+        placeholders = ",".join("?" for _ in active_ids)
+        self.con.execute(
+            f"DELETE FROM datasets WHERE archiveid = ? AND dsid NOT IN ({placeholders})", (archiveid, *active_ids)
+        )
+
+    def _index_time_series(self, archive: str, archiveid: int, info: InfoResult, dsdict: dict[int, tuple[int, str]]):
+        with TemporaryDirectory(prefix="hpc-index-") as cache:
+            for aca_tsid, series in info.time_series.items():
+                logical_id = dsdict[-aca_tsid][0]
+                tsid = self.con.execute(
+                    "INSERT INTO timeseries (archiveid, aca_tsid, datasetid, name) VALUES (?, ?, ?, ?) RETURNING tsid",
+                    (archiveid, aca_tsid, logical_id, series.name),
+                ).fetchone()[0]
+                summaries: dict[str, dict] = {}
+                for dsid, member in sorted(series.datasets.items(), key=lambda item: item[1].ts_order):
+                    datasetid = self._add_dataset(archiveid, dsid, member.name, DatasetType[member.file_format], "    ")
+                    self.con.execute(
+                        "INSERT INTO timeseries_datasets VALUES (?, ?, ?)", (tsid, datasetid, member.ts_order)
+                    )
+                    adios = adios2.Adios()
+                    io = adios.declare_io("index-member")
+                    io.set_engine("Campaign")
+                    io.set_parameters(
+                        {
+                            "include-dataset": "^" + re.escape(member.name).replace(";", r"\x3b") + "$",
+                            # ATS cache entries depend on the include filter. Isolate each member.
+                            "CachePath": str(Path(cache) / str(dsid)),
+                        }
+                    )
+                    with adios2.FileReader(io, archive) as reader:
+                        entries = self._organize_by_dataset(reader.available_variables(), info).get(-aca_tsid, {})
+                        for name, entry in entries.items():
+                            steps = int(entry["AvailableStepsCount"])
+                            variable = reader.inquire_variable(f"{series.name}/{name}")
+                            summary = summaries.setdefault(
+                                name,
+                                {
+                                    "steps": 0,
+                                    "min": None,
+                                    "max": None,
+                                    "type": VariableType[entry["Type"]],
+                                    "shape": entry["Shape"],
+                                    "ndim": len(variable.shape()),
+                                    "value": [] if variable.single_value() else "",
+                                },
+                            )
+                            if summary["type"] != VariableType[entry["Type"]]:
+                                raise ValueError(f"Variable {series.name}/{name} changes type between members")
+                            self.con.execute(
+                                "INSERT INTO timeseries_variable_steps VALUES (?, ?, ?, ?, ?)",
+                                (tsid, datasetid, name, summary["steps"], steps),
+                            )
+                            summary["steps"] += steps
+                            if variable.single_value():
+                                values = reader.read(variable, step_selection=[0, steps])
+                                summary["value"].extend(np.asarray(values).reshape(-1).tolist())
+                            blocks = reader.all_blocks_info(f"{series.name}/{name}") if "Min" in entry else []
+                            for bound, compare in (("min", min), ("max", max)):
+                                # Campaign's AvailableVariables may describe only the
+                                # first step. Use metadata bounds from every block.
+                                values = [
+                                    block[bound.title()] for step in blocks for block in step if bound.title() in block
+                                ]
+                                for value in values:
+                                    candidate = Decimal(value)
+                                    if candidate.is_nan():
+                                        continue
+                                    previous = summary[bound]
+                                    # Decimal preserves uint64 and long-double bounds exactly.
+                                    if previous is None or compare(Decimal(previous), candidate) == candidate:
+                                        summary[bound] = value
+                            self._add_variable(
+                                archiveid,
+                                logical_id,
+                                name,
+                                summary["type"],
+                                summary["steps"],
+                                summary["min"],
+                                summary["max"],
+                                summary["ndim"],
+                                summary["shape"],
+                                summary["value"],
+                            )
 
     def _set_defaults_index(self):
         set_default_args_from_config(self.args, False)

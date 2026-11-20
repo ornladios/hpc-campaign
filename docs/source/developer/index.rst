@@ -7,3 +7,4 @@ Developer guide
    docker
    development
    development_host
+   campaign_index

@@ -103,7 +103,7 @@ class ReplicaInfo:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass
-class DatasetInfo:
+class DatasetInfo:  # pylint: disable=too-many-instance-attributes
     """Dataset metadata entry."""
 
     uuid: str
@@ -113,6 +113,7 @@ class DatasetInfo:
     file_format: str
     replicas: dict[int, ReplicaInfo] = field(default_factory=dict)
     metadata: dict | None = None
+    ts_order: int = 0
 
 
 @dataclass
@@ -183,6 +184,7 @@ SELECT
     d.deltime           AS ds_deltime,
     d.fileformat        AS ds_fileformat,
     d.tsid              AS ds_tsid,
+    d.tsorder           AS ds_tsorder,
 
     r.rowid             AS rep_id,
     r.hostid            AS hostid,
@@ -227,6 +229,7 @@ SELECT
     d.deltime           AS ds_deltime,
     d.fileformat        AS ds_fileformat,
     d.tsid              AS ds_tsid,
+    d.tsorder           AS ds_tsorder,
 
     r.rowid             AS rep_id,
     r.hostid            AS hostid,
@@ -272,6 +275,7 @@ SELECT
     d.deltime           AS ds_deltime,
     d.fileformat        AS ds_fileformat,
     d.tsid              AS ds_tsid,
+    d.tsorder           AS ds_tsorder,
 
     r.rowid             AS rep_id,
     r.hostid            AS hostid,
@@ -314,6 +318,7 @@ SELECT
     d.deltime           AS ds_deltime,
     d.fileformat        AS ds_fileformat,
     d.tsid              AS ds_tsid,
+    d.tsorder           AS ds_tsorder,
 
     r.rowid             AS rep_id,
     r.hostid            AS hostid,
@@ -386,6 +391,7 @@ def info_row(
                 int(row["ds_modtime"]),
                 dataset_del_time,
                 row["ds_fileformat"],
+                ts_order=int(row["ds_tsorder"]),
             ),
         )
     else:
@@ -397,6 +403,7 @@ def info_row(
                 int(row["ds_modtime"]),
                 dataset_del_time,
                 row["ds_fileformat"],
+                ts_order=int(row["ds_tsorder"]),
             ),
         )
 
@@ -660,9 +667,9 @@ def collect_info(  # pylint: disable=too-many-locals,too-many-statements
     if not args.list_replicas and not args.list_files:
         res_ds = sql_execute(
             cur,
-            "select rowid, uuid, name, modtime, deltime, fileformat, tsid from dataset "
+            "select rowid, uuid, name, modtime, deltime, fileformat, tsid, tsorder from dataset "
             + delete_condition_where
-            + " order by rowid",
+            + " order by tsid, tsorder, rowid",
         )
         for dataset in res_ds:
             dataset_id = int(dataset[0])
@@ -672,10 +679,11 @@ def collect_info(  # pylint: disable=too-many-locals,too-many-statements
                 mod_time=dataset[3],
                 del_time=dataset[4],
                 file_format=dataset[5],
+                ts_order=int(dataset[7]),
             )
             tsid = dataset[6]
             if tsid > 0:
-                info_datasets.time_series[ts_id].datasets[dataset_id] = dataset_info
+                info_datasets.time_series[tsid].datasets[dataset_id] = dataset_info
             else:
                 info_datasets.datasets[dataset_id] = dataset_info
     else:
