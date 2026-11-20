@@ -60,5 +60,10 @@ jobs:
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca image data/T00002.png --name T2 --thumbnail 64 64
         python3 -m hpc_campaign manager --campaign_store /tmp/campaign-store --hostname CI heat.aca info -rf
 
+    - name: Configure campaign hostname for tests
+      run: |
+        mkdir -p ~/.config/hpc-campaign
+        printf 'Campaign:\n  hostname: CIhost\n' > ~/.config/hpc-campaign/config.yaml
+
     - name: Run pytest on image
       run: poetry run pytest
