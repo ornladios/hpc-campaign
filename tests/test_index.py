@@ -55,6 +55,22 @@ def campaign_index(tmp_path):
         index.close()
 
 
+def test_open_adds_time_series_tables_to_existing_index(campaign_index):
+    archiveid = campaign_index._add_archive("existing.aca", "")
+    campaign_index.con.commit()
+    for table in ["timeseries_variable_steps", "timeseries_datasets", "timeseries"]:
+        campaign_index.con.execute(f"DROP TABLE {table}")
+    campaign_index.close()
+
+    campaign_index.open()
+
+    assert campaign_index.con.execute("SELECT archiveid, name FROM archives").fetchall() == [
+        (archiveid, "existing.aca")
+    ]
+    for table in ["timeseries", "timeseries_datasets", "timeseries_variable_steps"]:
+        assert campaign_index.con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+
 def mock_json_archive(monkeypatch, dataset_name, file_format):
     """Replace archive I/O while retaining dataset grouping and SQLite writes."""
     info = InfoResult(
