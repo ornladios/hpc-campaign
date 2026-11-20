@@ -11,6 +11,7 @@ import json
 import sqlite3
 import sys
 from os.path import exists
+from pathlib import Path
 from time import sleep
 from typing import Any
 
@@ -111,7 +112,11 @@ class Index:
             self.open(create=True, truncate=False)
         archives = []
         for pattern in patterns:
-            archives += ls(pattern, wildcard=wildcard, index=False, campaign_store=self.args.campaign_store)
+            path = Path(pattern).expanduser()
+            if path.is_absolute() and path.is_file():
+                archives.append(str(path))
+            else:
+                archives += ls(pattern, wildcard=wildcard, index=False, campaign_store=self.args.campaign_store)
         for archive in archives:
             if self.args.verbose > 0:
                 print(f"index archive={archive}")
@@ -352,21 +357,16 @@ class Index:
 
     def _organize_by_dataset(self, entries: ADIOS_AvailableVariables, info: InfoResult) -> DatasetsVariables:
         d: DatasetsVariables = {}
-        dsid = -1
-        last_used_dsname = "!@#*.|/ This /is surely a/nonexistent path"
+        # Prefer the most specific dataset and match a complete path component.
+        # For example, dataset "input" must not capture "input_dir/file".
+        datasets = sorted(info.datasets.items(), key=lambda item: len(item[1].name), reverse=True)
         for ename, edict in entries.items():
-            if ename.startswith(last_used_dsname):
-                # print(f"        Use last dsname {last_used_dsname} for {ename}")
-                entryname = ename[len(last_used_dsname) + 1 :]
+            for ds_id, ds in datasets:
+                if ename == ds.name or ename.startswith(ds.name + "/"):
+                    dsid = ds_id
+                    entryname = ename[len(ds.name) + 1 :]
+                    break
             else:
-                for ds_id, ds in info.datasets.items():
-                    if ename.startswith(ds.name):
-                        dsid = ds_id
-                        last_used_dsname = ds.name
-                        entryname = ename[len(ds.name) + 1 :]
-                        # print(f"        Use new dsname {last_used_dsname} for {ename}")
-                        break
-            if dsid == -1:
                 raise RuntimeError(
                     f"Variable/attribute path {ename} has no matching dataset name. This should not happen"
                 )
