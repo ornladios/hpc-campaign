@@ -39,6 +39,9 @@ RUN poetry export -f requirements.txt -o requirements.txt --without-hashes --wit
        pip install --no-cache-dir -r requirements.txt \
     && rm requirements.txt /tmp/adios2-linux-arm64-cache.h
 
+# Shared location for integration fixtures on macOS, WSL, and in containers.
+RUN mkdir -p /usr/local/var/hpc-campaign/data
+
 FROM app-deps AS app
 
 COPY . .
@@ -219,7 +222,7 @@ COPY --from=integration-secrets /run/integration-secrets/https.crt /run/https/ht
 COPY --from=integration-secrets /run/integration-secrets/https.key /run/https/https.key
 
 ENTRYPOINT ["python", "/app/dockerfiles/integration/https_server.py"]
-CMD ["--directory", "/srv", "--port", "443", "--certificate", "/run/https/https.crt", "--key", "/run/https/https.key"]
+CMD ["--directory", "/usr/local/var/hpc-campaign", "--port", "443", "--certificate", "/run/https/https.crt", "--key", "/run/https/https.key"]
 
 
 FROM integration AS ssh-service
@@ -249,7 +252,10 @@ COPY --from=integration-secrets /run/integration-secrets/https.key /tmp/server.k
 COPY --from=adios2-source scripts/docker/spin-xrootd/xrootd-http.cfg /etc/xrootd/xrootd-http.cfg
 COPY --from=adios2-source scripts/docker/spin-xrootd/docker-entrypoint.sh /docker-entrypoint.sh
 
+# The upstream configuration has its own export paths. Explicitly allow our
+# fixture directory for ordinary HTTP file and TAR range reads.
 RUN sed -i 's|/usr/local/lib64/|/usr/local/lib/|g' /etc/xrootd/xrootd-http.cfg \
+    && printf '\nssi.fspath /usr/local/var/hpc-campaign/data\nall.export /usr/local/var/hpc-campaign/data r/o\n' >> /etc/xrootd/xrootd-http.cfg \
     && chmod 755 /docker-entrypoint.sh \
     && chmod 644 /tmp/server.crt /tmp/server.key \
     && mkdir -p /var/log/xrootd /var/spool/xrootd /run/xrootd /tmp/adios \

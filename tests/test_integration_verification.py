@@ -9,6 +9,43 @@ from tests.integration import verify_campaigns, verify_campaigns_incontainer
 from tests.integration.create_campaigns import CAMPAIGN_NAMES, DATASET_PATHS
 
 
+@pytest.mark.parametrize("fail_on_array", (False, True))
+def test_verifier_reads_array_after_scalar_in_same_dataset(monkeypatch, fail_on_array):
+    reads = []
+    dataset = "testdata/heat_10_15.h5"
+
+    class Reader:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def available_variables(self):
+            return {f"{dataset}/iteration": {}, f"{dataset}/T": {}}
+
+        def read(self, name):
+            reads.append(name)
+            if fail_on_array and name == f"{dataset}/T":
+                raise RuntimeError("array read failed")
+
+    class Adios:
+        def declare_io(self, _name):
+            return object()
+
+    monkeypatch.setattr(verify_campaigns, "verify_metadata", lambda _path: None)
+    monkeypatch.setattr(verify_campaigns.adios2, "Adios", Adios)
+    monkeypatch.setattr(verify_campaigns.adios2, "FileReader", lambda *_args: Reader())
+
+    if fail_on_array:
+        with pytest.raises(RuntimeError, match="array read failed"):
+            verify_campaigns.verify_campaign(Path("testdata-xrootd-files.aca"), (dataset,))
+    else:
+        verify_campaigns.verify_campaign(Path("testdata-xrootd-files.aca"), (dataset,))
+
+    assert reads == [f"{dataset}/iteration", f"{dataset}/T"]
+
+
 def test_failure_summary_preserves_multiline_adios_exception():
     output = """Traceback (most recent call last):
   File \"verify_campaigns.py\", line 1, in <module>

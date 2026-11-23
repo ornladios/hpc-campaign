@@ -452,6 +452,7 @@ class SSHConnectRemote:
             socket.timeout,
             OSError,
         ) as e:
+            client.close()
             print(f"*** Failed to connect to {host_name}:{ssh_port}: {e}")
             return SSH_CONNECT_ERROR, None
 

@@ -1,8 +1,8 @@
 Use the Docker services from the host
 =====================================
 
-This workflow runs hpc-campaign and ADIOS2 tools directly in the WSL or Linux
-host environment while Docker provides the SSH, HTTPS, S3, and XRootD test
+This workflow runs hpc-campaign and ADIOS2 tools directly in the macOS, WSL,
+or Linux host environment while Docker provides the SSH, HTTPS, S3, and XRootD test
 services. It is useful for debugging a host build without attaching a shell to
 the integration container. For development inside the container, see
 :doc:`development`.
@@ -16,11 +16,10 @@ resolvable on the host.
 Prepare the host
 ----------------
 
-1. Make /srv writable by $USER
-2. Make /srv/data writable by $USER
-   /srv/data/testdata
-   /srv/data/archive
-   will be created by user 
+Create ``/usr/local/var/hpc-campaign/data`` once and make it writable by your
+user. This path is shared by convention across macOS, WSL, and the Docker
+containers. The campaign generator creates its ``testdata`` and ``archive``
+subdirectories.
 
 Prepare and start the services
 ------------------------------
@@ -66,19 +65,26 @@ should be running and healthy. They publish only loopback ports:
 * XRootD HTTP: ``127.0.0.1:8080``
 
 Option 1: Export the generated campaigns from the Docker container
---------------------------------------------------------
+----------------------------------------------------------------
 
 The setup job writes ten ACA files to a Docker volume rather than the source
-tree. Copy them to an ignored host build directory::
+tree. From the repository root, copy them to an ignored host build directory::
 
    campaign_dir="${PWD}/build/docker-campaigns"
    mkdir -p "${campaign_dir}"
-   hostcompose cp setup:/campaigns/. "${campaign_dir}/"
+   docker compose --file dockerfiles/compose.integration.yaml \
+       cp setup:/campaigns/. "${campaign_dir}/"
 
-Repeat this copy after rerunning ``setup``. The local campaigns contain
-container paths under ``/srv`` and are not expected to work from the host. The
-SSH, HTTPS, S3, and XRootD campaigns use logical names that can be redirected
-through the host configuration below.
+The ``setup`` container normally exits with status 0 after generating the
+campaigns; copying from this stopped container works. The command copies the
+contents of ``/campaigns`` directly into ``build/docker-campaigns``. For example,
+the HTTPS files campaign is ``build/docker-campaigns/testdata-https-files.aca``.
+
+Repeat this copy after rerunning ``setup``. The local campaigns refer to
+``/usr/local/var/hpc-campaign/data``. To use them from the host, also copy the
+prepared data from the Docker volume into that directory, or generate the
+campaigns on the host as described below. The SSH, HTTPS, S3, and XRootD campaigns
+use logical names that can be redirected through the host configuration below.
 
 
 Option 2: Generate the campaigns on the host directly
@@ -86,11 +92,11 @@ Option 2: Generate the campaigns on the host directly
 
    HPC_CAMPAIGN_DIR=<hpc-campaign-source-dir>
    python3 ${HPC_CAMPAIGN_DIR}/tests/integration/create_campaigns.py  \
-      --data-root /srv/data --campaign-store . \
+      --data-root /usr/local/var/hpc-campaign/data --campaign-store . \
       --source ${HPC_CAMPAIGN_DIR}/testdata  2>&1 >log.create_docker_campaigns
 
-   hpc_campaign manager ./testdata-https-file.aca info
-   bpls -l -P "include-dataset=testdata/readme" ./testdata-https-file.aca
+   hpc_campaign manager ./testdata-https-files.aca info
+   bpls -l -P "include-dataset=testdata/readme" ./testdata-https-files.aca
 
 
 Export the HTTPS CA and SSH key
