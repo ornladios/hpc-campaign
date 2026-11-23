@@ -122,6 +122,32 @@ def test_add_archive_pattern(monkeypatch, campaign_index, tmp_path, pattern, wil
     index_archive.assert_called_once_with("external.aca")
 
 
+@pytest.mark.parametrize("prefix", ["./", "../archives/"])
+@pytest.mark.parametrize(
+    "name, wildcard",
+    [("external [1].aca", False), ("external [1].aca", True), (r"external.*\.aca$", False), ("external*.aca", True)],
+)
+def test_add_explicit_relative_archive(monkeypatch, campaign_index, tmp_path, prefix, name, wildcard):
+    store = tmp_path / "store"
+    store.mkdir()
+    campaign_index.args.campaign_store = str(store)
+    working = tmp_path / "working"
+    working.mkdir()
+    archive_dir = working if prefix == "./" else tmp_path / "archives"
+    archive_dir.mkdir(exist_ok=True)
+    archive = archive_dir / "external [1].aca"
+    archive.touch()
+    # A matching store entry must not be selected instead of the local file.
+    (store / archive.name).touch()
+    monkeypatch.chdir(working)
+    index_archive = MagicMock()
+    monkeypatch.setattr(campaign_index, "_index_archive", index_archive)
+
+    campaign_index.add([prefix + name], wildcard=wildcard)
+
+    index_archive.assert_called_once_with(str(archive))
+
+
 def test_index_attributes_with_overlapping_dataset_names(monkeypatch, campaign_index):
     reader = mock_json_archive(monkeypatch, "input", "TEXT")
     info = InfoResult(

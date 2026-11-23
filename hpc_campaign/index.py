@@ -127,8 +127,24 @@ class Index:
         archives = []
         for pattern in patterns:
             path = Path(pattern).expanduser()
-            if path.is_absolute() and path.is_file():
-                archives.append(str(path))
+            explicit_relative = pattern.startswith(("./", "../"))
+            if (path.is_absolute() or explicit_relative) and path.is_file():
+                archives.append(str(path.resolve()))
+            elif explicit_relative:
+                # Search explicit relative patterns from the working directory,
+                # not from the configured campaign store. Keep the remaining
+                # pattern intact for regex or wildcard matching.
+                search_root = Path.cwd()
+                while pattern.startswith(("./", "../")):
+                    if pattern.startswith("../"):
+                        search_root = search_root.parent
+                        pattern = pattern[3:]
+                    else:
+                        pattern = pattern[2:]
+                archives += [
+                    str(search_root / archive)
+                    for archive in ls(pattern, wildcard=wildcard, index=False, campaign_store=str(search_root))
+                ]
             else:
                 archives += ls(pattern, wildcard=wildcard, index=False, campaign_store=self.args.campaign_store)
         for archive in archives:
