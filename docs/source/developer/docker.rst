@@ -107,6 +107,12 @@ The matrix contains ``files`` and ``tar`` campaigns for ``local``, ``ssh``,
 ``https``, ``s3``, and ``xrootd``. Campaign and service data live in named
 volumes so they remain available for manual inspection after a test run.
 
+The shared data volume is mounted at ``/usr/local/var/hpc-campaign``, with test
+data and archives under ``/usr/local/var/hpc-campaign/data``. This data path is
+also used for native development on macOS, WSL, and Linux. After changing the
+data path, rerun ``setup`` and replace any exported ACA files, since local,
+SSH, and XRootD campaigns record absolute filesystem paths.
+
 The verifier opens every dataset separately, so one failure does not hide the
 rest of the matrix. It prints every successful and failed read, summarizes all
 failures, and exits nonzero unless all 110 protocol/layout/dataset combinations

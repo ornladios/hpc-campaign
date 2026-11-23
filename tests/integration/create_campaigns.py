@@ -291,7 +291,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/srv/data"),
+        default=Path("/usr/local/var/hpc-campaign/data"),
         help="destination where test data and its tar archive are prepared",
     )
     parser.add_argument(

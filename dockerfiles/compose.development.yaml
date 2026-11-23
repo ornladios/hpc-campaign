@@ -39,7 +39,7 @@ services:
         target: /workspace/ADIOS2
       - adios2-dev-build:/workspace/ADIOS2-build
       - adios2-dev-install:/opt/adios2-dev
-      - campaign-data:/srv:ro
+      - campaign-data:/usr/local/var/hpc-campaign:ro
       - campaign-store:/campaigns
 
 volumes:
