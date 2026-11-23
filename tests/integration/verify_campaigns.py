@@ -87,11 +87,13 @@ def verify_campaign(
                 dataset_variables = [name for name in variables if name.startswith(f"{dataset_path}/")]
             if not dataset_variables:
                 raise AssertionError(f"Campaign has no variable for {dataset_path}: {campaign_path.name}")
-            reader.read(dataset_variables[0])
-            variables_read.append(dataset_variables[0])
+            for variable_name in dataset_variables:
+                reader.read(variable_name)
+                variables_read.append(variable_name)
     print(
         f"PASS {campaign_path.name}: {', '.join(dataset_paths)}; "
-        f"{len(variables)} variables; read {len(variables_read)} datasets"
+        f"{len(variables)} variables; read {len(dataset_paths)} datasets "
+        f"({len(variables_read)} variables)"
     )
 
 

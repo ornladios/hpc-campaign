@@ -81,7 +81,7 @@ services:
       setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/22"]
+      test: ["CMD", "/usr/sbin/sshd", "-t"]
       interval: 2s
       timeout: 2s
       retries: 30

@@ -1,10 +1,50 @@
 from os.path import expanduser
+from unittest.mock import Mock
+
+import pytest
 
 from hpc_campaign import connector
 
 
 def _handler():
     return connector.MyTCPHandler.__new__(connector.MyTCPHandler)
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        connector.paramiko.AuthenticationException("authentication failed"),
+        connector.paramiko.BadHostKeyException(
+            "127.0.0.1",
+            Mock(get_base64=lambda: "current-key"),
+            Mock(get_base64=lambda: "stale-key"),
+        ),
+        connector.paramiko.SSHException("Error reading SSH protocol banner"),
+        connector.socket.timeout("timed out"),
+        OSError("connection reset"),
+    ),
+)
+def test_failed_ssh_connection_closes_client(monkeypatch, error):
+    client = Mock()
+    client.connect.side_effect = error
+    monkeypatch.setattr(connector.paramiko, "SSHClient", lambda: client)
+
+    status, remote = connector.SSHConnectRemote()._connect_server("127.0.0.1", 2222, "campaign")
+
+    assert status == connector.SSH_CONNECT_ERROR
+    assert remote is None
+    client.close.assert_called_once_with()
+
+
+def test_successful_ssh_connection_keeps_client_open(monkeypatch):
+    client = Mock()
+    monkeypatch.setattr(connector.paramiko, "SSHClient", lambda: client)
+
+    status, remote = connector.SSHConnectRemote()._connect_server("127.0.0.1", 2222, "campaign")
+
+    assert status == connector.SSH_NO_ERROR
+    assert remote.client is client
+    client.close.assert_not_called()
 
 
 def test_config_parsers_include_jump_identity_file(monkeypatch):
