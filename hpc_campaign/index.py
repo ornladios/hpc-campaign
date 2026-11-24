@@ -23,6 +23,7 @@ import adios2  # type: ignore[import-untyped]
 import numpy as np
 
 from .config import ACA_VERSION
+from .hdf5_reader import iter_attributes, iter_variables, open_embedded_hdf5
 from .info import InfoResult
 from .ls import ls
 from .manager import Manager
@@ -473,13 +474,56 @@ class Index:
         # datasetid: rowid of the datasets table in this database
 
         archive_path = get_path(archive, self.args.campaign_store)
+        hdf5_names = [ds.name for ds in info_res.datasets.values() if ds.file_format == "HDF5"]
+        hdf5_names.extend(
+            member.name
+            for series in info_res.time_series.values()
+            for member in series.datasets.values()
+            if member.file_format == "HDF5"
+        )
+        if any(ds.file_format != "HDF5" for ds in info_res.datasets.values()) or any(
+            member.file_format != "HDF5"
+            for series in info_res.time_series.values()
+            for member in series.datasets.values()
+        ):
+            self._index_adios_archive(archive_path, archiveid, info_res, dsdict, hdf5_names)
+        for dsid, dataset in info_res.datasets.items():
+            if dataset.file_format == "HDF5":
+                with open_embedded_hdf5(archive_path, dsid) as reader:
+                    for variable in iter_variables(reader):
+                        self._add_variable(archiveid, dsdict[dsid][0], **variable)
+                    for name, value, atype in iter_attributes(reader):
+                        self._add_attribute(archiveid, dsdict[dsid][0], name, value, atype.name)
+
+        self._index_time_series(archive_path, archiveid, info_res, dsdict)
+        active_ids = list(dsdict)
+        for series in info_res.time_series.values():
+            active_ids.extend(series.datasets)
+        placeholders = ",".join("?" for _ in active_ids)
+        self.con.execute(
+            f"DELETE FROM datasets WHERE archiveid = ? AND dsid NOT IN ({placeholders})", (archiveid, *active_ids)
+        )
+
+    def _index_adios_archive(
+        self,
+        archive_path: str,
+        archiveid: int,
+        info_res: InfoResult,
+        dsdict: dict[int, tuple[int, str]],
+        hdf5_names: list[str],
+    ):
         with ExitStack() as stack:
-            if info_res.time_series:
+            if info_res.time_series or hdf5_names:
                 cache = stack.enter_context(TemporaryDirectory(prefix="hpc-index-"))
                 adios = adios2.Adios()
                 io = adios.declare_io("index-archive")
                 io.set_engine("Campaign")
-                io.set_parameters({"CachePath": cache})
+                parameters = {"CachePath": cache}
+                if hdf5_names:
+                    parameters["exclude-dataset"] = ";".join(
+                        "^" + re.escape(name).replace(";", r"\x3b") + "$" for name in hdf5_names
+                    )
+                io.set_parameters(parameters)
                 f = stack.enter_context(adios2.FileReader(io, archive_path))
             else:
                 f = stack.enter_context(adios2.FileReader(archive_path))
@@ -555,16 +599,9 @@ class Index:
                     else:  # otherwise we add variable data
                         self._add_attribute(archiveid, dsdict[dsid][0], attr_name, content, attr_info["Type"])
 
-        self._index_time_series(archive_path, archiveid, info_res, dsdict)
-        active_ids = list(dsdict)
-        for series in info_res.time_series.values():
-            active_ids.extend(series.datasets)
-        placeholders = ",".join("?" for _ in active_ids)
-        self.con.execute(
-            f"DELETE FROM datasets WHERE archiveid = ? AND dsid NOT IN ({placeholders})", (archiveid, *active_ids)
-        )
-
     def _index_time_series(self, archive: str, archiveid: int, info: InfoResult, dsdict: dict[int, tuple[int, str]]):
+        if not info.time_series:
+            return
         with TemporaryDirectory(prefix="hpc-index-") as cache:
             for aca_tsid, series in info.time_series.items():
                 logical_id = dsdict[-aca_tsid][0]
@@ -578,6 +615,9 @@ class Index:
                     self.con.execute(
                         "INSERT INTO timeseries_datasets VALUES (?, ?, ?)", (tsid, datasetid, member.ts_order)
                     )
+                    if member.file_format == "HDF5":
+                        self._index_hdf5_member(archive, archiveid, dsid, datasetid, logical_id, tsid, summaries)
+                        continue
                     adios = adios2.Adios()
                     io = adios.declare_io("index-member")
                     io.set_engine("Campaign")
@@ -642,6 +682,56 @@ class Index:
                                 summary["shape"],
                                 summary["value"],
                             )
+
+    def _index_hdf5_member(
+        self,
+        archive: str,
+        archiveid: int,
+        dsid: int,
+        datasetid: int,
+        logical_id: int,
+        tsid: int,
+        summaries: dict[str, dict],
+    ):
+        with open_embedded_hdf5(archive, dsid) as reader:
+            for variable in iter_variables(reader):
+                name = variable["vname"]
+                summary = summaries.setdefault(
+                    name,
+                    {
+                        "steps": 0,
+                        "min": None,
+                        "max": None,
+                        "type": variable["vtype"],
+                        "shape": variable["vshape"],
+                        "ndim": variable["ndim"],
+                        "value": [] if variable["ndim"] == 0 else "",
+                    },
+                )
+                if summary["type"] != variable["vtype"]:
+                    raise ValueError(f"Variable {name} changes type between members")
+                self.con.execute(
+                    "INSERT INTO timeseries_variable_steps VALUES (?, ?, ?, ?, ?)",
+                    (tsid, datasetid, name, summary["steps"], variable["vsteps"]),
+                )
+                summary["steps"] += variable["vsteps"]
+                if isinstance(summary["value"], list):
+                    value = variable["value"]
+                    summary["value"].extend(value if isinstance(value, list) else [value])
+                self._add_variable(
+                    archiveid,
+                    logical_id,
+                    name,
+                    summary["type"],
+                    summary["steps"],
+                    summary["min"],
+                    summary["max"],
+                    summary["ndim"],
+                    summary["shape"],
+                    summary["value"],
+                )
+            for name, value, atype in iter_attributes(reader):
+                self._add_attribute(archiveid, logical_id, name, value, atype.name)
 
     def _set_defaults_index(self):
         set_default_args_from_config(self.args, False)

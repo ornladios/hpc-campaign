@@ -62,3 +62,34 @@ the new tables.
 Member metadata is inspected through the Campaign reader with an exact dataset
 filter and a separate temporary cache per member, so ATS cache entries from
 different filters cannot interfere.
+
+
+Embedded HDF5 metadata
+----------------------
+
+The indexer opens the non-HDF5 contents of an ACA with the ADIOS2 Campaign
+engine. It supplies an ``exclude-dataset`` expression for every physical HDF5
+dataset, including time-series members, and uses an isolated Campaign cache
+when filtering. An archive containing only HDF5 datasets does not require
+opening a Campaign reader.
+
+Each HDF5 dataset is processed separately by ``hpc_campaign.hdf5_reader``.
+The reader selects the newest live replica's embedded file from the ACA
+SQLite tables, decompresses it when needed, and opens it read-only using
+``h5py.File(BytesIO(image), "r")``. Neither extraction to disk nor access to
+the original replica is required. Missing, corrupt, or encrypted metadata
+raises an error; the index API currently has no encryption-key argument.
+A failed refresh retains the previous committed archive snapshot.
+
+Native HDF5 paths become variable names, with NumPy storage types mapped to
+ACX variable types. Root, group, and dataset attributes retain their physical
+HDF5 paths. Strings are decoded as UTF-8, complex values use real/imaginary
+pairs, and object references are represented by JSON null.
+
+For ADIOS-written HDF5 files, ``StepN`` groups
+are combined into logical variables with per-variable step counts and ordered
+scalar values. These variables also participate in ACA time-series summaries
+and member step mappings.
+
+Scalar values are indexed; array payloads are not read. HDF5 min/max remain SQL NULL because embedded
+surrogates may contain placeholder arrays rather than the original values.
